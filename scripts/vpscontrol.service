@@ -1,0 +1,21 @@
+[Unit]
+Description=VPS Control panel
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/vpscontrol
+Restart=on-failure
+RestartSec=3
+Environment=VPSCONTROL_LISTEN=127.0.0.1:8090
+Environment=VPSCONTROL_DATA_DIR=/opt/vpscontrol/data
+Environment=VPSCONTROL_DEPLOY_ROOT=/opt/vpscontrol/apps
+Environment=VPSCONTROL_FILES_ROOT=/home
+# VPS Control doit pouvoir piloter Docker (socket) et lire/écrire sous
+# VPSCONTROL_FILES_ROOT : on tourne en root, comme le fait Wings pour Pterodactyl.
+# Restreignez VPSCONTROL_FILES_ROOT à un dossier précis si vous préférez limiter la portée.
+User=root
+
+[Install]
+WantedBy=multi-user.target
