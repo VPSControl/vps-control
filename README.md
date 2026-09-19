@@ -27,41 +27,49 @@ sans dépendance runtime lourde, pensé pour tourner confortablement sur un
 
 ## Installation sur votre VPS
 
+**Option rapide — installeur en une commande** (une fois le dépôt publié et
+`install.vpscontrol.lordobitotech.xyz` configuré, voir `website/HOSTING.md`) :
+
+```bash
+curl -fsSL https://install.vpscontrol.lordobitotech.xyz | sudo bash
+# ou directement avec un domaine pour du HTTPS automatique :
+curl -fsSL https://install.vpscontrol.lordobitotech.xyz | sudo bash -s -- panel.mondomaine.com
+```
+
+**Option manuelle — depuis une copie locale du dépôt :**
+
 ```bash
 # 1. Copiez ce dossier sur votre VPS (scp, git clone de votre propre dépôt, etc.)
 scp -r vps-control root@VOTRE_IP:/opt/vpscontrol-src
 
 # 2. Connectez-vous et lancez l'installation
 ssh root@VOTRE_IP
-cd /opt/vpscontrol
-sudo bash scripts/install.sh
+cd /opt/vpscontrol-src
+sudo bash scripts/install.sh                      # sans domaine
+sudo bash scripts/install.sh panel.mondomaine.com  # avec domaine + HTTPS automatique
 ```
 
 Le script installe Docker et Go si nécessaire, compile le binaire, crée les
 dossiers de travail (`/opt/vpscontrol/data`, `/opt/vpscontrol/apps`) et
 installe un service `systemd` qui démarre le panel automatiquement.
 
-Par défaut, VPS Control écoute uniquement sur `127.0.0.1:8090` (pas exposé à
-internet directement) — c'est volontaire pour vous forcer à mettre du HTTPS
-devant. Deux options :
+**Si vous donnez un domaine**, le script installe et configure **Caddy**
+automatiquement : reverse proxy vers le panel + certificat HTTPS obtenu et
+renouvelé tout seul (il suffit d'avoir pointé un enregistrement DNS A de ce
+domaine vers l'IP du VPS). Le panel continue d'écouter uniquement en local
+(`127.0.0.1:8090`), Caddy est la seule chose exposée sur les ports 80/443.
 
-**Option A — tester rapidement via un tunnel SSH** (aucune config serveur) :
-```bash
-ssh -L 8090:localhost:8090 root@VOTRE_IP
-# puis ouvrez http://localhost:8090 dans votre navigateur
-```
+**Si vous ne donnez pas de domaine**, le panel reste accessible uniquement en
+local. Deux options pour y accéder quand même :
 
-**Option B — exposer proprement avec un nom de domaine (recommandé), via Caddy** (gère le HTTPS automatiquement) :
-```bash
-apt install -y caddy
-cat >/etc/caddy/Caddyfile <<'EOF'
-panel.votredomaine.com {
-    reverse_proxy 127.0.0.1:8090
-}
-EOF
-systemctl restart caddy
-```
-Pointez au préalable un enregistrement DNS A de `panel.votredomaine.com` vers l'IP du VPS.
+- **Tunnel SSH** (pour tester vite, sans rien configurer côté serveur) :
+  ```bash
+  ssh -L 8090:localhost:8090 root@VOTRE_IP
+  # puis ouvrez http://localhost:8090 dans votre navigateur
+  ```
+- **Relancer l'installeur plus tard avec un domaine** — il détecte
+  l'installation existante et se contente d'ajouter la configuration du
+  reverse proxy.
 
 À la première visite, un écran de configuration vous demande de créer le
 premier compte admin.
@@ -93,6 +101,12 @@ premier compte admin.
 - Historique des déploiements avec rollback vers une image précédente.
 - Statistiques d'usage (CPU/RAM par conteneur) sur le tableau de bord.
 
+## Liens du projet
+
+- Site vitrine + documentation : `vpscontrol.lordobitotech.xyz`
+- Installeur en une commande : `install.vpscontrol.lordobitotech.xyz`
+- Dépôt open source : à publier sur GitHub (voir `website/HOSTING.md` pour l'URL à mettre à jour dans `installer/get.sh` une fois le dépôt créé)
+
 ## Structure du projet
 
 ```
@@ -103,9 +117,12 @@ vps-control/
 │   ├── store/                 # stockage JSON (users, déploiements, connexions DB)
 │   ├── middleware/             # auth middleware, helpers JSON
 │   └── handlers/               # logique des endpoints API
-├── web/                        # frontend (HTML/CSS/JS vanilla, embarqué dans le binaire)
+├── web/                        # frontend du panel (HTML/CSS/JS vanilla, embarqué dans le binaire)
+├── website/                    # site vitrine + documentation (à héberger séparément, voir HOSTING.md)
+├── installer/
+│   └── get.sh                  # script "curl one-liner" à héberger sur install.vpscontrol.lordobitotech.xyz
 ├── scripts/
-│   ├── install.sh              # installation automatique
+│   ├── install.sh              # installation automatique (avec ou sans domaine)
 │   └── vpscontrol.service      # unité systemd
 └── go.mod
 ```
