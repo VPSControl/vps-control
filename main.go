@@ -36,6 +36,8 @@ func main() {
 	filesRoot := env("VPSCONTROL_FILES_ROOT", "/home")
 	deployRoot := env("VPSCONTROL_DEPLOY_ROOT", "/opt/vpscontrol/apps")
 	listenAddr := env("VPSCONTROL_LISTEN", "127.0.0.1:8090")
+	srcDir := env("VPSCONTROL_SRC_DIR", "/opt/vpscontrol-src")
+	repoURL := env("VPSCONTROL_REPO_URL", "https://github.com/VPSControl/vps-control.git")
 
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatalf("impossible de créer le dossier de données %s: %v", dataDir, err)
@@ -60,6 +62,7 @@ func main() {
 	svcH := &handlers.ServiceHandlers{}
 	deployH := &handlers.DeployHandlers{Store: st, DeployRoot: deployRoot}
 	dbH := &handlers.DatabaseHandlers{Store: st}
+	sysH := &handlers.SystemHandlers{Store: st, SrcDir: srcDir, RepoURL: repoURL}
 
 	mux := http.NewServeMux()
 
@@ -107,6 +110,12 @@ func main() {
 		"GET": dbH.ListConnections, "POST": dbH.AddConnection,
 	})))
 	mux.Handle("/api/db/connections/", authMw(http.HandlerFunc(dbDispatch(dbH))))
+
+	// ---- Système (authentifié / admin pour les actions sensibles) ----
+	mux.Handle("/api/system/info", authMw(http.HandlerFunc(sysH.Info)))
+	mux.Handle("/api/system/stats", authMw(http.HandlerFunc(sysH.Stats)))
+	mux.Handle("/api/system/check-update", authMw(adminMw(http.HandlerFunc(sysH.CheckUpdate))))
+	mux.Handle("/api/system/update", authMw(adminMw(http.HandlerFunc(sysH.Update))))
 
 	// ---- Frontend statique ----
 	sub, err := fs.Sub(webFS, "web")

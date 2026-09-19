@@ -1,0 +1,10 @@
+[Unit]
+Description=Vérifie et applique les mises à jour VPS Control tous les jours
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

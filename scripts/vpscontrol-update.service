@@ -1,0 +1,8 @@
+[Unit]
+Description=Vérification et application des mises à jour VPS Control
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=VPSCONTROL_SRC_DIR=/opt/vpscontrol-src
+ExecStart=/bin/bash /opt/vpscontrol-src/scripts/update.sh

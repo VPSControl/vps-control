@@ -112,6 +112,19 @@ main { flex: 1; padding: 28px 32px; overflow-y: auto; }
 .tab-header h2 { margin: 0; font-size: 20px; }
 .tab-header h3 { margin: 0; }
 
+/* ---- Dashboard stat cards ---- */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 8px; }
+@media (max-width: 1000px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-card {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px; display: flex; align-items: flex-start; gap: 14px;
+}
+.stat-icon { font-size: 26px; line-height: 1; }
+.stat-value { font-size: 24px; font-weight: 700; color: var(--text); }
+.stat-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.stat-bar { height: 5px; border-radius: 4px; background: var(--bg-elevated-2); margin-top: 8px; overflow: hidden; width: 100%; }
+.stat-bar-fill { height: 100%; background: var(--green); width: 0%; transition: width 0.4s ease; }
+
 /* ---- Buttons ---- */
 button { font-family: inherit; }
 .btn-primary, .btn-secondary, .btn-danger {

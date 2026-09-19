@@ -2,9 +2,16 @@
 # Installation de VPS Control sur un VPS Debian/Ubuntu.
 #
 # Usage :
-#   sudo bash scripts/install.sh                          # installation sans domaine (accès via tunnel SSH ou reverse proxy manuel)
-#   sudo bash scripts/install.sh panel.mondomaine.com      # installation + HTTPS automatique sur ce domaine (via Caddy)
-#   sudo VPSCONTROL_DOMAIN=panel.mondomaine.com bash scripts/install.sh   # équivalent, utile via curl | bash
+#   sudo bash scripts/install.sh
+#
+# Le script pose deux questions (avec valeurs par défaut si vous appuyez juste
+# sur Entrée) : le nom de domaine à utiliser (laisser vide pour accéder via
+# l'IP du VPS) et si vous voulez activer les mises à jour automatiques.
+#
+# Pour une utilisation non interactive (via curl | bash par exemple), vous
+# pouvez aussi tout fournir par variables d'environnement :
+#   VPSCONTROL_DOMAIN=panel.mondomaine.com sudo -E bash scripts/install.sh
+#   VPSCONTROL_AUTO_UPDATE=yes sudo -E bash scripts/install.sh
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -12,21 +19,40 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-DOMAIN="${1:-${VPSCONTROL_DOMAIN:-}}"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Si aucun domaine n'est passé en argument/variable et qu'un terminal interactif
-# est disponible (cas d'une exécution locale, pas via curl | bash sans -s),
-# on le demande. Sinon on continue sans domaine.
-if [ -z "$DOMAIN" ] && [ -t 0 ]; then
-  read -r -p "Nom de domaine à utiliser pour le panel (laisser vide pour passer cette étape) : " DOMAIN || true
-fi
-if [ -z "$DOMAIN" ] && [ -r /dev/tty ]; then
-  read -r -p "Nom de domaine à utiliser pour le panel (laisser vide pour passer cette étape) : " DOMAIN </dev/tty || true
+# ---------------------------------------------------------------------
+# Petit helper de prompt qui fonctionne même si le script est lancé via
+# curl | bash (stdin déjà consommé par le pipe) : on lit depuis /dev/tty
+# quand c'est possible, et on retombe sur la valeur par défaut sinon.
+# ---------------------------------------------------------------------
+ask() {
+  local prompt="$1" default="$2" var
+  if [ -r /dev/tty ]; then
+    read -r -p "$prompt" var </dev/tty || true
+  fi
+  echo "${var:-$default}"
+}
+
+echo "=================================================================="
+echo " VPS Control — installation"
+echo "=================================================================="
+echo ""
+
+DOMAIN="${VPSCONTROL_DOMAIN:-}"
+if [ -z "$DOMAIN" ]; then
+  DOMAIN="$(ask "Nom de domaine pointant déjà vers ce VPS (laisser vide pour utiliser directement l'IP du serveur) : " "")"
 fi
 
-echo "==> Installation des paquets système (docker, git, curl)..."
+AUTO_UPDATE="${VPSCONTROL_AUTO_UPDATE:-}"
+if [ -z "$AUTO_UPDATE" ]; then
+  AUTO_UPDATE="$(ask "Activer les mises à jour automatiques quotidiennes ? (o/N) : " "n")"
+fi
+
+echo ""
+echo "==> Installation des paquets système (docker, git, nginx, curl)..."
 apt-get update -y
-apt-get install -y ca-certificates curl git gnupg
+apt-get install -y ca-certificates curl git gnupg nginx openssl
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "==> Installation de Docker..."
@@ -51,7 +77,6 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 echo "==> Compilation de VPS Control..."
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 go mod tidy
 go build -o /usr/local/bin/vpscontrol .
@@ -60,64 +85,124 @@ echo "==> Préparation des dossiers..."
 mkdir -p /opt/vpscontrol/data /opt/vpscontrol/apps
 
 echo "==> Installation du service systemd..."
-cp "$PROJECT_DIR/scripts/vpscontrol.service" /etc/systemd/system/vpscontrol.service
+sed "s|/opt/vpscontrol-src|${PROJECT_DIR}|g" "$PROJECT_DIR/scripts/vpscontrol.service" > /etc/systemd/system/vpscontrol.service
 systemctl daemon-reload
 systemctl enable --now vpscontrol
 
 # ---------------------------------------------------------------------
-# Configuration du domaine (reverse proxy HTTPS automatique via Caddy)
+# Reverse proxy Nginx + accès HTTPS
 # ---------------------------------------------------------------------
+rm -f /etc/nginx/sites-enabled/default
+
+ACCESS_URL=""
+
 if [ -n "$DOMAIN" ]; then
-  echo "==> Configuration du domaine $DOMAIN (Caddy, HTTPS automatique)..."
+  echo "==> Configuration de Nginx pour ${DOMAIN}..."
+  cat > /etc/nginx/sites-available/vpscontrol.conf <<EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
 
-  if ! command -v caddy >/dev/null 2>&1; then
-    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-      | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-      > /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update -y
-    apt-get install -y caddy
-  fi
-
-  CADDY_BLOCK="/etc/caddy/vpscontrol.caddy"
-  cat > "$CADDY_BLOCK" <<EOF
-${DOMAIN} {
-    reverse_proxy 127.0.0.1:8090
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
 }
 EOF
-  # On importe ce bloc depuis le Caddyfile principal sans écraser une config existante.
-  if ! grep -q "vpscontrol.caddy" /etc/caddy/Caddyfile 2>/dev/null; then
-    echo "import $CADDY_BLOCK" >> /etc/caddy/Caddyfile
-  fi
-  systemctl enable --now caddy
-  systemctl reload caddy
+  ln -sf /etc/nginx/sites-available/vpscontrol.conf /etc/nginx/sites-enabled/vpscontrol.conf
+  nginx -t && systemctl reload nginx
 
   if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     ufw allow 80/tcp || true
     ufw allow 443/tcp || true
   fi
 
-  echo ""
-  echo "=================================================================="
-  echo " VPS Control est installé et démarré."
-  echo " Pensez à pointer un enregistrement DNS A de ${DOMAIN} vers l'IP de ce VPS"
-  echo " (si ce n'est pas déjà fait) — Caddy obtiendra le certificat HTTPS"
-  echo " automatiquement dès que le DNS pointe correctement."
-  echo ""
-  echo " Panel accessible sur : https://${DOMAIN}"
-  echo "=================================================================="
+  echo "==> Obtention du certificat HTTPS via Certbot pour ${DOMAIN}..."
+  apt-get install -y certbot python3-certbot-nginx
+  if [ -r /dev/tty ]; then
+    # Interactif volontairement : Certbot va lui-même demander l'email et
+    # l'acceptation des conditions d'utilisation, comme il le fait d'habitude.
+    certbot --nginx -d "$DOMAIN" </dev/tty || {
+      echo "!! Certbot n'a pas pu terminer automatiquement." >&2
+      echo "   Vous pouvez relancer manuellement plus tard avec :" >&2
+      echo "     sudo certbot --nginx -d ${DOMAIN}" >&2
+    }
+  else
+    echo "!! Pas de terminal interactif disponible pour Certbot (installation non interactive)." >&2
+    echo "   Le panel est accessible en HTTP pour l'instant. Lancez ensuite manuellement :" >&2
+    echo "     sudo certbot --nginx -d ${DOMAIN}" >&2
+  fi
+  ACCESS_URL="https://${DOMAIN}"
 else
-  echo ""
-  echo "=================================================================="
-  echo " VPS Control est installé et démarré."
-  echo " Il écoute en local sur 127.0.0.1:8090 (pas exposé directement à internet)."
-  echo ""
-  echo " Pour configurer un domaine avec HTTPS automatique plus tard, relancez :"
-  echo "   sudo bash scripts/install.sh panel.mondomaine.com"
-  echo ""
-  echo " En attendant, pour tester rapidement via un tunnel SSH depuis votre machine :"
-  echo "   ssh -L 8090:localhost:8090 root@VOTRE_IP"
-  echo " puis ouvrez http://localhost:8090 dans votre navigateur."
-  echo "=================================================================="
+  PORT="$(ask "Port à utiliser pour accéder au panel en HTTPS via l'IP (par défaut 8443) : " "8443")"
+  PUBLIC_IP="$(curl -4 -fsSL --max-time 5 ifconfig.me || hostname -I | awk '{print $1}')"
+
+  echo "==> Génération d'un certificat auto-signé (accès direct par IP)..."
+  mkdir -p /etc/vpscontrol/ssl
+  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    -keyout /etc/vpscontrol/ssl/selfsigned.key \
+    -out /etc/vpscontrol/ssl/selfsigned.crt \
+    -subj "/CN=${PUBLIC_IP}" >/dev/null 2>&1
+
+  echo "==> Configuration de Nginx sur le port ${PORT}..."
+  cat > /etc/nginx/sites-available/vpscontrol.conf <<EOF
+server {
+    listen ${PORT} ssl;
+    server_name _;
+
+    ssl_certificate     /etc/vpscontrol/ssl/selfsigned.crt;
+    ssl_certificate_key /etc/vpscontrol/ssl/selfsigned.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+  ln -sf /etc/nginx/sites-available/vpscontrol.conf /etc/nginx/sites-enabled/vpscontrol.conf
+  nginx -t && systemctl reload nginx
+
+  if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+    ufw allow "${PORT}/tcp" || true
+  fi
+
+  ACCESS_URL="https://${PUBLIC_IP}:${PORT}"
 fi
+
+# ---------------------------------------------------------------------
+# Mises à jour automatiques (optionnel)
+# ---------------------------------------------------------------------
+case "${AUTO_UPDATE,,}" in
+  o|oui|y|yes)
+    echo "==> Activation des mises à jour automatiques quotidiennes..."
+    sed "s|/opt/vpscontrol-src|${PROJECT_DIR}|g" "$PROJECT_DIR/scripts/vpscontrol-update.service" > /etc/systemd/system/vpscontrol-update.service
+    cp "$PROJECT_DIR/scripts/vpscontrol-update.timer" /etc/systemd/system/vpscontrol-update.timer
+    systemctl daemon-reload
+    systemctl enable --now vpscontrol-update.timer
+    AUTO_UPDATE_MSG="Activées (vérification tous les jours, décalée aléatoirement de 0 à 30 min)."
+    ;;
+  *)
+    AUTO_UPDATE_MSG="Désactivées. Mettez à jour manuellement avec : sudo bash ${PROJECT_DIR}/scripts/update.sh (ou depuis l'onglet Système du panel)."
+    ;;
+esac
+
+echo ""
+echo "=================================================================="
+echo " VPS Control est installé et démarré."
+echo ""
+echo " Accès : ${ACCESS_URL}"
+if [ -z "$DOMAIN" ]; then
+  echo " (certificat auto-signé : votre navigateur affichera un avertissement"
+  echo "  de sécurité la première fois, c'est normal — cliquez sur \"avancé\""
+  echo "  puis \"continuer\". Pour un vrai certificat, relancez l'installeur"
+  echo "  avec un nom de domaine.)"
+fi
+echo ""
+echo " Mises à jour automatiques : ${AUTO_UPDATE_MSG}"
+echo "=================================================================="

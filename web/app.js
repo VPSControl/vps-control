@@ -64,8 +64,9 @@ function enterApp(user) {
   currentUser = user;
   $('#current-user').textContent = `${user.username} (${user.role})`;
   $('#nav-users').classList.toggle('hidden', user.role !== 'admin');
+  $('#nav-system').classList.toggle('hidden', user.role !== 'admin');
   showScreen('screen-app');
-  loadServices();
+  loadDashboard();
 }
 
 $('#form-setup').addEventListener('submit', async (e) => {
@@ -110,7 +111,74 @@ $$('.nav-item').forEach(btn => {
     if (btn.dataset.tab === 'deploy') loadDeployments();
     if (btn.dataset.tab === 'databases') loadDbConnections();
     if (btn.dataset.tab === 'users') loadUsers();
+    if (btn.dataset.tab === 'system') loadSystemInfo();
+    if (btn.dataset.tab === 'dashboard') loadDashboard();
   });
+});
+
+// ---------------------------------------------------------------------
+// Tableau de bord
+// ---------------------------------------------------------------------
+function formatBytes(bytes) {
+  if (!bytes) return '0 o';
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let i = 0, n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(1)} ${units[i]}`;
+}
+
+async function loadDashboard() {
+  try {
+    const s = await api('/api/system/stats');
+    $('#stat-services').textContent = `${s.servicesRunning} / ${s.servicesTotal}`;
+    $('#stat-deployments').textContent = s.deployments;
+    $('#stat-disk').textContent = `${formatBytes(s.diskUsedBytes)} / ${formatBytes(s.diskTotalBytes)}`;
+    $('#stat-mem').textContent = `${formatBytes(s.memUsedBytes)} / ${formatBytes(s.memTotalBytes)}`;
+    $('#stat-disk-bar').style.width = s.diskTotalBytes ? `${Math.min(100, (s.diskUsedBytes / s.diskTotalBytes) * 100)}%` : '0%';
+    $('#stat-mem-bar').style.width = s.memTotalBytes ? `${Math.min(100, (s.memUsedBytes / s.memTotalBytes) * 100)}%` : '0%';
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#btn-refresh-dashboard').addEventListener('click', loadDashboard);
+
+// ---------------------------------------------------------------------
+// Système (version, mise à jour)
+// ---------------------------------------------------------------------
+async function loadSystemInfo() {
+  try {
+    const info = await api('/api/system/info');
+    $('#sys-local-commit').textContent = info.commit || '—';
+    $('#sys-repo-url').textContent = info.repoUrl || '—';
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#btn-check-update').addEventListener('click', async () => {
+  const status = $('#sys-update-status');
+  status.textContent = 'Vérification en cours...';
+  try {
+    const res = await api('/api/system/check-update', { method: 'POST' });
+    status.textContent = res.updateAvailable
+      ? `Mise à jour disponible : ${res.localCommit} → ${res.remoteCommit}`
+      : `Déjà à jour (${res.localCommit}).`;
+  } catch (err) {
+    status.textContent = 'Erreur : ' + err.message;
+  }
+});
+
+$('#btn-run-update').addEventListener('click', async () => {
+  if (!confirm('Lancer la mise à jour maintenant ? Le panel va redémarrer.')) return;
+  const result = $('#sys-update-result');
+  result.textContent = 'Mise à jour en cours...';
+  try {
+    const res = await api('/api/system/update', { method: 'POST' });
+    result.textContent = res.message;
+  } catch (err) {
+    result.textContent = 'Erreur : ' + err.message;
+  }
 });
 
 // ---------------------------------------------------------------------

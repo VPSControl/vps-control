@@ -50,11 +50,13 @@
       <img src="/assets/logo-dark-bg.jpg" alt="VPS Control">
     </div>
     <nav>
-      <button class="nav-item active" data-tab="services">Services</button>
+      <button class="nav-item active" data-tab="dashboard">Tableau de bord</button>
+      <button class="nav-item" data-tab="services">Services</button>
       <button class="nav-item" data-tab="files">Fichiers</button>
       <button class="nav-item" data-tab="deploy">Déployer</button>
       <button class="nav-item" data-tab="databases">Bases de données</button>
       <button class="nav-item" data-tab="users" id="nav-users">Utilisateurs</button>
+      <button class="nav-item" data-tab="system" id="nav-system">Système</button>
     </nav>
     <div class="sidebar-footer">
       <span id="current-user" class="muted"></span>
@@ -63,8 +65,48 @@
   </aside>
 
   <main>
+    <!-- ---- Tableau de bord ---- -->
+    <section id="tab-dashboard" class="tab active">
+      <div class="tab-header">
+        <h2>Tableau de bord</h2>
+        <button id="btn-refresh-dashboard" class="btn-secondary">Actualiser</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span class="stat-icon">🐳</span>
+          <div>
+            <div class="stat-value" id="stat-services">—</div>
+            <div class="stat-label">services actifs</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon">🚀</span>
+          <div>
+            <div class="stat-value" id="stat-deployments">—</div>
+            <div class="stat-label">applications déployées</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon">💾</span>
+          <div>
+            <div class="stat-value" id="stat-disk">—</div>
+            <div class="stat-label">disque utilisé</div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="stat-disk-bar"></div></div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon">🧠</span>
+          <div>
+            <div class="stat-value" id="stat-mem">—</div>
+            <div class="stat-label">mémoire utilisée</div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="stat-mem-bar"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ---- Services ---- -->
-    <section id="tab-services" class="tab active">
+    <section id="tab-services" class="tab">
       <div class="tab-header">
         <h2>Services</h2>
         <button id="btn-refresh-services" class="btn-secondary">Actualiser</button>
@@ -243,6 +285,26 @@
         <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <!-- ---- Système ---- -->
+    <section id="tab-system" class="tab">
+      <div class="tab-header"><h2>Système</h2></div>
+      <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="card">
+          <h3>Version installée</h3>
+          <p class="muted">Commit local : <code id="sys-local-commit">—</code></p>
+          <p class="muted">Dépôt : <code id="sys-repo-url">—</code></p>
+          <button id="btn-check-update" class="btn-secondary">Vérifier les mises à jour</button>
+          <p id="sys-update-status" class="muted" style="margin-top:10px;"></p>
+        </div>
+        <div class="card">
+          <h3>Mettre à jour</h3>
+          <p class="muted">Récupère la dernière version du dépôt, recompile le binaire et redémarre le service. Le panel sera indisponible quelques secondes.</p>
+          <button id="btn-run-update" class="btn-primary">Mettre à jour maintenant</button>
+          <p id="sys-update-result" class="muted" style="margin-top:10px;"></p>
+        </div>
+      </div>
     </section>
   </main>
 </div>

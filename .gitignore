@@ -1,0 +1,4 @@
+/vpscontrol
+*.exe
+*.log
+.DS_Store
