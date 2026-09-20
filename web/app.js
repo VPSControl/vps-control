@@ -154,7 +154,21 @@ async function loadSystemInfo() {
   } catch (err) {
     toast(err.message, true);
   }
+  try {
+    const hook = await api('/api/system/webhook');
+    $('#sys-webhook-url').textContent = `${location.origin}${hook.path}`;
+    $('#sys-webhook-secret').textContent = hook.secret;
+  } catch (err) {
+    // Admin-only endpoint; a non-admin viewer simply won't see this card populated.
+  }
 }
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard'));
+}
+
+$('#btn-copy-webhook-url').addEventListener('click', () => copyToClipboard($('#sys-webhook-url').textContent));
+$('#btn-copy-webhook-secret').addEventListener('click', () => copyToClipboard($('#sys-webhook-secret').textContent));
 
 $('#btn-check-update').addEventListener('click', async () => {
   const status = $('#sys-update-status');

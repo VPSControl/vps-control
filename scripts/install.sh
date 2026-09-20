@@ -6,7 +6,9 @@
 #
 # The script asks two questions (with sensible defaults if you just hit
 # Enter): which domain name to use (leave empty to access via the VPS's IP)
-# and whether you want automatic updates enabled.
+# and whether you want a daily safety-net update check enabled on top of
+# the GitHub webhook (see the end of this script) that applies pushes
+# instantly.
 #
 # For non-interactive use (e.g. via curl | bash), you can also supply
 # everything through environment variables:
@@ -46,7 +48,7 @@ fi
 
 AUTO_UPDATE="${VPSCONTROL_AUTO_UPDATE:-}"
 if [ -z "$AUTO_UPDATE" ]; then
-  AUTO_UPDATE="$(ask "Enable daily automatic updates? (y/N): " "n")"
+  AUTO_UPDATE="$(ask "Also enable a daily safety-net update check, in case a GitHub webhook push is ever missed? (y/N): " "n")"
 fi
 
 echo ""
@@ -180,17 +182,36 @@ fi
 # ---------------------------------------------------------------------
 case "${AUTO_UPDATE,,}" in
   y|yes)
-    echo "==> Enabling daily automatic updates..."
+    echo "==> Enabling the daily safety-net update check..."
     sed "s|/opt/vpscontrol-src|${PROJECT_DIR}|g" "$PROJECT_DIR/scripts/vpscontrol-update.service" > /etc/systemd/system/vpscontrol-update.service
     cp "$PROJECT_DIR/scripts/vpscontrol-update.timer" /etc/systemd/system/vpscontrol-update.timer
     systemctl daemon-reload
     systemctl enable --now vpscontrol-update.timer
-    AUTO_UPDATE_MSG="Enabled (checks once a day, randomly staggered by 0-30 min)."
+    AUTO_UPDATE_MSG="Daily safety-net check enabled (staggered randomly by 0-30 min)."
     ;;
   *)
-    AUTO_UPDATE_MSG="Disabled. Update manually with: sudo bash ${PROJECT_DIR}/scripts/update.sh (or from the panel's System tab)."
+    AUTO_UPDATE_MSG="Daily safety-net check disabled. The GitHub webhook (below) is still the main update path; you can also update anytime with: sudo bash ${PROJECT_DIR}/scripts/update.sh, or from the panel's System tab."
     ;;
 esac
+
+# ---------------------------------------------------------------------
+# GitHub webhook for instant updates
+#
+# VPS Control isn't a static site you drop somewhere and forget — it's a
+# running service, so "update" means: pull the new code into $PROJECT_DIR,
+# rebuild the binary, and restart the systemd unit, exactly like updating
+# nginx or any other service. The panel generates a random secret on first
+# boot and exposes a signed webhook endpoint so that pushing to GitHub
+# applies that update immediately, instead of waiting on a timer.
+# ---------------------------------------------------------------------
+WEBHOOK_SECRET=""
+for i in 1 2 3 4 5; do
+  if [ -f /opt/vpscontrol/data/webhook.secret ]; then
+    WEBHOOK_SECRET="$(od -An -tx1 /opt/vpscontrol/data/webhook.secret | tr -d ' \n')"
+    break
+  fi
+  sleep 1
+done
 
 echo ""
 echo "=================================================================="
@@ -204,5 +225,18 @@ if [ -z "$DOMAIN" ]; then
   echo "  with a domain name.)"
 fi
 echo ""
-echo " Automatic updates: ${AUTO_UPDATE_MSG}"
+echo " Daily safety-net updates: ${AUTO_UPDATE_MSG}"
+echo ""
+echo " To make pushes to GitHub apply instantly to this running service,"
+echo " add a webhook on your repo (Settings -> Webhooks -> Add webhook):"
+echo "   Payload URL:  ${ACCESS_URL}/api/webhook/update"
+if [ -n "$WEBHOOK_SECRET" ]; then
+  echo "   Secret:       ${WEBHOOK_SECRET}"
+else
+  echo "   Secret:       (run 'sudo cat /opt/vpscontrol/data/webhook.secret | od -An -tx1 | tr -d \" \\n\"'"
+  echo "                  or check the panel's System tab)"
+fi
+echo "   Content type: application/json"
+echo "   Events:       Just the push event"
+echo " (Also visible anytime in the panel's System tab.)"
 echo "=================================================================="

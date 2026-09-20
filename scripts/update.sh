@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Updates VPS Control to the latest version from the repo and restarts the service.
 # Called either manually (sudo bash scripts/update.sh), from the panel's
-# "Update" button, or automatically by the vpscontrol-update.timer if the
-# installer enabled it.
+# "Update" button, automatically by the GitHub webhook right after a push,
+# or by the vpscontrol-update.timer daily safety-net check if enabled.
 set -euo pipefail
 
 SRC_DIR="${VPSCONTROL_SRC_DIR:-/opt/vpscontrol-src}"

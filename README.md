@@ -42,8 +42,9 @@ clarity without spending their evening on it.
   sites) and `Dockerfile` generation if the project doesn't already have one.
 - **Database browser**: MySQL/PostgreSQL connections, tables, rows,
   free-form SQL queries.
-- **Built-in updates**: a button in the panel (or a daily timer, if
-  enabled) that pulls the latest version, rebuilds and restarts.
+- **Built-in updates**: instantly via a GitHub webhook on every push, on
+  demand from a button in the panel, or with an optional daily safety-net
+  timer — always a rebuild + restart, never a partial state.
 - **HTTPS handled at install time**, whether you have a domain name
   (Let's Encrypt certificate via Certbot) or not (self-signed certificate,
   direct IP access).
@@ -71,7 +72,7 @@ curl -fsSL https://install.vpscontrol.wazestudio.com | sudo bash
 Or by cloning the repo yourself:
 
 ```bash
-git clone https://github.com/VPSControl/vps-control.git
+git clone https://github.com/Wazestudio/vps-control.git
 cd vps-control
 sudo bash scripts/install.sh
 ```
@@ -85,14 +86,49 @@ installs a `systemd` service. It then asks you two questions:
    the panel becomes accessible over HTTPS directly on the VPS's IP and a
    port of your choice (self-signed certificate — your browser will show a
    warning the first time, that's expected).
-2. **Enable daily automatic updates?** Either way, a button in the panel's
-   *System* tab does the same thing on demand.
+2. **Also enable a daily safety-net update check?** This is on top of the
+   GitHub webhook (below), which is the main way updates land on the
+   running service.
 
 On your first visit, a setup screen invites you to create the first admin
 account.
 
+### Updates
+
+VPS Control isn't a site you drop somewhere — it installs and runs like a
+system service, the same way `nginx` or `docker` do (see *File layout*
+below). "Update" means: pull the new code, rebuild the binary, restart the
+systemd unit.
+
+- **Instantly, on every push** — the panel's *System* tab shows a payload
+  URL and a secret; add them as a webhook on the repo (GitHub → Settings →
+  Webhooks → Add webhook, content type `application/json`, event "Just the
+  push event") and every push is applied within seconds.
+- **On demand** — a button in the panel's *System* tab does the same
+  thing without needing SSH.
+- **Daily safety net** — if enabled at install time, in case a webhook
+  push is ever missed.
+
+The service only restarts if the rebuild succeeds; a failed build leaves
+the previous version running.
+
 The full guide (environment variables, architecture, known limitations) is
 at [vpscontrol.wazestudio.com/docs.html](https://vpscontrol.wazestudio.com/docs.html).
+
+## File layout
+
+Fixed, predictable paths — the same idea as installing `nginx`, not files
+scattered wherever a deploy happened to land them:
+
+| What | Where |
+|---|---|
+| Binary | `/usr/local/bin/vpscontrol` |
+| Source (used for updates) | `/opt/vpscontrol-src` |
+| Data (accounts, DB connections, deployments, secrets) | `/opt/vpscontrol/data` |
+| Deployed applications | `/opt/vpscontrol/apps` |
+| systemd unit | `/etc/systemd/system/vpscontrol.service` |
+| Nginx site config | `/etc/nginx/sites-available/vpscontrol.conf` |
+| TLS | Let's Encrypt via Certbot (domain), or self-signed at `/etc/vpscontrol/ssl/` (IP) |
 
 ## Environment variables
 
@@ -106,7 +142,7 @@ Editable in `/etc/systemd/system/vpscontrol.service`, then
 | `VPSCONTROL_DEPLOY_ROOT` | `/opt/vpscontrol/apps` | Folder for deployed applications |
 | `VPSCONTROL_FILES_ROOT` | `/home` | Root directory exposed by the file manager |
 | `VPSCONTROL_SRC_DIR` | `/opt/vpscontrol-src` | Source code folder, used for updates |
-| `VPSCONTROL_REPO_URL` | `https://github.com/VPSControl/vps-control.git` | Upstream repo, used to detect new versions |
+| `VPSCONTROL_REPO_URL` | `https://github.com/Wazestudio/vps-control.git` | Upstream repo, used to detect new versions |
 
 ## Project structure
 
@@ -120,15 +156,15 @@ vps-control/
 │   └── handlers/                # API endpoint logic (files, docker, deploy, db, system)
 ├── web/                         # panel frontend (vanilla HTML/CSS/JS, embedded in the binary)
 ├── scripts/
-│   ├── install.sh               # installer (domain/IP, HTTPS, auto-updates)
+│   ├── install.sh               # installer (domain/IP, HTTPS, webhook + daily safety-net updates)
 │   ├── update.sh                # git pull + rebuild + restart
 │   ├── vpscontrol.service        # panel's systemd unit
-│   └── vpscontrol-update.{service,timer}  # automatic-update timer
+│   └── vpscontrol-update.{service,timer}  # optional daily safety-net timer
 └── go.mod
 ```
 
 The marketing site and the one-line installer live in a
-[separate repo](https://github.com/VPSControl/vpscontrol-website) — they're
+[separate repo](https://github.com/Wazestudio/vpscontrol-website) — they're
 plain static files, they have no business sitting next to a Go project.
 
 ## Known limitations (honest, for what's next)
@@ -152,14 +188,15 @@ plain static files, they have no business sitting next to a Go project.
 - Streaming build logs (Server-Sent Events) during `docker build`
 - Encryption at rest for database connection passwords
 - docker-compose templates for multi-container stacks (app + DB + cache)
-- GitHub webhooks to redeploy automatically on every push
+- GitHub webhooks to redeploy *your own deployed apps* automatically on
+  every push (the panel itself already supports this for its own updates)
 - Deployment history with rollback
 - Per-container CPU/RAM stats on the dashboard
 
 ## Contributing
 
 Issues and pull requests are welcome on
-[GitHub](https://github.com/VPSControl/vps-control). No complicated
+[GitHub](https://github.com/Wazestudio/vps-control). No complicated
 process: open an issue if you want to discuss a change before diving in.
 
 ## License

@@ -305,6 +305,15 @@
           <p id="sys-update-result" class="muted" style="margin-top:10px;"></p>
         </div>
       </div>
+      <div class="card">
+        <h3>Automatic updates on push (GitHub webhook)</h3>
+        <p class="muted">Add a webhook on the repo (Settings → Webhooks → Add webhook) so every push to GitHub is applied here right away, instead of waiting for the next scheduled check.</p>
+        <p class="muted">Payload URL</p>
+        <div class="code-row"><code id="sys-webhook-url">—</code><button id="btn-copy-webhook-url" class="action-btn">Copy</button></div>
+        <p class="muted" style="margin-top:10px;">Secret</p>
+        <div class="code-row"><code id="sys-webhook-secret">—</code><button id="btn-copy-webhook-secret" class="action-btn">Copy</button></div>
+        <p class="muted" style="margin-top:10px;">Content type: <code>application/json</code> · Events: <em>Just the push event</em></p>
+      </div>
     </section>
   </main>
 </div>

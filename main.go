@@ -37,7 +37,7 @@ func main() {
 	deployRoot := env("VPSCONTROL_DEPLOY_ROOT", "/opt/vpscontrol/apps")
 	listenAddr := env("VPSCONTROL_LISTEN", "127.0.0.1:8090")
 	srcDir := env("VPSCONTROL_SRC_DIR", "/opt/vpscontrol-src")
-	repoURL := env("VPSCONTROL_REPO_URL", "https://github.com/VPSControl/vps-control.git")
+	repoURL := env("VPSCONTROL_REPO_URL", "https://github.com/Wazestudio/vps-control.git")
 
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatalf("could not create data directory %s: %v", dataDir, err)
@@ -55,6 +55,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("session secret error: %v", err)
 	}
+	webhookSecret, err := loadOrCreateWebhookSecret(dataDir)
+	if err != nil {
+		log.Fatalf("webhook secret error: %v", err)
+	}
 
 	authH := &handlers.AuthHandlers{Store: st, Secret: secret}
 	userH := &handlers.UserHandlers{Store: st}
@@ -62,7 +66,7 @@ func main() {
 	svcH := &handlers.ServiceHandlers{}
 	deployH := &handlers.DeployHandlers{Store: st, DeployRoot: deployRoot}
 	dbH := &handlers.DatabaseHandlers{Store: st}
-	sysH := &handlers.SystemHandlers{Store: st, SrcDir: srcDir, RepoURL: repoURL}
+	sysH := &handlers.SystemHandlers{Store: st, SrcDir: srcDir, RepoURL: repoURL, WebhookSecret: webhookSecret}
 
 	mux := http.NewServeMux()
 
@@ -116,6 +120,10 @@ func main() {
 	mux.Handle("/api/system/stats", authMw(http.HandlerFunc(sysH.Stats)))
 	mux.Handle("/api/system/check-update", authMw(adminMw(http.HandlerFunc(sysH.CheckUpdate))))
 	mux.Handle("/api/system/update", authMw(adminMw(http.HandlerFunc(sysH.Update))))
+	mux.Handle("/api/system/webhook", authMw(adminMw(http.HandlerFunc(sysH.WebhookInfo))))
+
+	// ---- GitHub webhook (public: authenticated by HMAC signature, not by session) ----
+	mux.HandleFunc("/api/webhook/update", methodGuard("POST", sysH.Webhook))
 
 	// ---- Static frontend ----
 	sub, err := fs.Sub(webFS, "web")
@@ -138,6 +146,25 @@ func main() {
 
 func loadOrCreateSecret(dataDir string) ([]byte, error) {
 	path := dataDir + "/session.secret"
+	if b, err := os.ReadFile(path); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	secret, err := auth.NewSecret()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, secret, 0o600); err != nil {
+		return nil, err
+	}
+	return secret, nil
+}
+
+// loadOrCreateWebhookSecret is separate from the session secret: it's meant
+// to be copied out and pasted into GitHub's webhook settings, so it gets its
+// own file and its own lifecycle (rotating the session secret shouldn't log
+// out every webhook integration, and vice versa).
+func loadOrCreateWebhookSecret(dataDir string) ([]byte, error) {
+	path := dataDir + "/webhook.secret"
 	if b, err := os.ReadFile(path); err == nil && len(b) == 32 {
 		return b, nil
 	}
