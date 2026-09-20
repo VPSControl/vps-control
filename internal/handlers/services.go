@@ -22,12 +22,12 @@ type dockerPs struct {
 	Command string `json:"Command"`
 }
 
-// List retourne l'état de tous les conteneurs Docker (= tous les services
-// déployés depuis le panel, plus tout autre conteneur présent sur le VPS).
+// List returns the state of every Docker container (i.e. every service
+// deployed from the panel, plus any other container present on the VPS).
 func (h *ServiceHandlers) List(w http.ResponseWriter, r *http.Request) {
 	out, err := runCommand(10*time.Second, "docker", "ps", "-a", "--format", "{{json .}}")
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "docker indisponible: "+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "docker unavailable: "+out)
 		return
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -67,7 +67,7 @@ func (h *ServiceHandlers) Restart(w http.ResponseWriter, r *http.Request) {
 func (h *ServiceHandlers) action(w http.ResponseWriter, r *http.Request, prefix, suffix, dockerVerb string) {
 	name := nameFromPath(prefix, strings.TrimSuffix(r.URL.Path, "/"+suffix))
 	if !validContainerName(name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom de service invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid service name")
 		return
 	}
 	out, err := runCommand(30*time.Second, "docker", dockerVerb, name)
@@ -81,7 +81,7 @@ func (h *ServiceHandlers) action(w http.ResponseWriter, r *http.Request, prefix,
 func (h *ServiceHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	name := nameFromPath("/api/services/", r.URL.Path)
 	if !validContainerName(name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom de service invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid service name")
 		return
 	}
 	out, err := runCommand(30*time.Second, "docker", "rm", "-f", name)
@@ -95,7 +95,7 @@ func (h *ServiceHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *ServiceHandlers) Logs(w http.ResponseWriter, r *http.Request) {
 	name := nameFromPath("/api/services/", strings.TrimSuffix(r.URL.Path, "/logs"))
 	if !validContainerName(name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom de service invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid service name")
 		return
 	}
 	out, err := runCommand(10*time.Second, "docker", "logs", "--tail", "300", name)
@@ -106,11 +106,11 @@ func (h *ServiceHandlers) Logs(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]string{"logs": out})
 }
 
-// CreateDatabaseService lance rapidement un conteneur MySQL ou Postgres,
-// pratique pour donner une base à une app tout juste déployée (ex: Laravel).
+// CreateDatabaseService quickly spins up a MySQL or Postgres container,
+// handy for giving a freshly deployed app (e.g. Laravel) its own database.
 type createDBServiceRequest struct {
 	Name     string `json:"name"`
-	Engine   string `json:"engine"` // "mysql" ou "postgres"
+	Engine   string `json:"engine"` // "mysql" or "postgres"
 	DBName   string `json:"dbName"`
 	User     string `json:"user"`
 	Password string `json:"password"`
@@ -120,11 +120,11 @@ type createDBServiceRequest struct {
 func (h *ServiceHandlers) CreateDatabaseService(w http.ResponseWriter, r *http.Request) {
 	var req createDBServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if !validContainerName(req.Name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid name")
 		return
 	}
 	var args []string
@@ -146,7 +146,7 @@ func (h *ServiceHandlers) CreateDatabaseService(w http.ResponseWriter, r *http.R
 			"-p", req.Port + ":5432",
 			"postgres:16-alpine"}
 	default:
-		middleware.JSONError(w, http.StatusBadRequest, "moteur non supporté (mysql ou postgres)")
+		middleware.JSONError(w, http.StatusBadRequest, "unsupported engine (mysql or postgres)")
 		return
 	}
 	out, err := runCommand(60*time.Second, "docker", args...)

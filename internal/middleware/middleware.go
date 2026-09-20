@@ -15,24 +15,24 @@ const userCtxKey ctxKey = "user"
 
 const SessionCookieName = "vpscontrol_session"
 
-// Auth crée un middleware qui vérifie le cookie de session et injecte
-// l'utilisateur courant dans le contexte de la requête.
+// Auth builds a middleware that checks the session cookie and injects the
+// current user into the request context.
 func Auth(secret []byte, st *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie(SessionCookieName)
 			if err != nil {
-				JSONError(w, http.StatusUnauthorized, "non authentifié")
+				JSONError(w, http.StatusUnauthorized, "not authenticated")
 				return
 			}
 			userID, err := auth.ParseSessionToken(secret, cookie.Value)
 			if err != nil {
-				JSONError(w, http.StatusUnauthorized, "session invalide, merci de vous reconnecter")
+				JSONError(w, http.StatusUnauthorized, "invalid session, please log in again")
 				return
 			}
 			u, ok := st.FindUserByID(userID)
 			if !ok {
-				JSONError(w, http.StatusUnauthorized, "utilisateur introuvable")
+				JSONError(w, http.StatusUnauthorized, "user not found")
 				return
 			}
 			ctx := context.WithValue(r.Context(), userCtxKey, u)
@@ -41,12 +41,12 @@ func Auth(secret []byte, st *store.Store) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin doit être chaîné après Auth.
+// RequireAdmin must be chained after Auth.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := UserFromContext(r.Context())
 		if !ok || u.Role != "admin" {
-			JSONError(w, http.StatusForbidden, "réservé aux administrateurs")
+			JSONError(w, http.StatusForbidden, "admins only")
 			return
 		}
 		next.ServeHTTP(w, r)

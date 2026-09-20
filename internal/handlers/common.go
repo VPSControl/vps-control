@@ -14,8 +14,8 @@ func randomID() string {
 	return hex.EncodeToString(b)
 }
 
-// runCommand exécute une commande avec un timeout raisonnable et retourne
-// stdout+stderr combinés (utile pour afficher les erreurs docker/git à l'utilisateur).
+// runCommand runs a command with a sane timeout and returns combined
+// stdout+stderr (handy for surfacing docker/git errors to the user).
 func runCommand(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

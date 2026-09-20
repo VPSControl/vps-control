@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-// diskUsage retourne (utilisé, total) en octets pour le point de montage donné.
+// diskUsage returns (used, total) in bytes for the given mount point.
 func diskUsage(path string) (used, total uint64) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
@@ -22,8 +22,9 @@ func diskUsage(path string) (used, total uint64) {
 	return total - free, total
 }
 
-// memoryUsage retourne (utilisé, total) en octets, lu depuis /proc/meminfo.
-// Volontairement simple (pas de dépendance externe) : suffisant pour l'aperçu du tableau de bord.
+// memoryUsage returns (used, total) in bytes, read from /proc/meminfo.
+// Deliberately simple (no external dependency): good enough for the
+// dashboard overview.
 func memoryUsage() (used, total uint64) {
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {
@@ -44,7 +45,7 @@ func memoryUsage() (used, total uint64) {
 		if err != nil {
 			continue
 		}
-		values[key] = n * 1024 // /proc/meminfo est en kB
+		values[key] = n * 1024 // /proc/meminfo is in kB
 	}
 	total = values["MemTotal"]
 	available := values["MemAvailable"]

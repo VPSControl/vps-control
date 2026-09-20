@@ -9,21 +9,21 @@ import (
 	"time"
 )
 
-// User représente un compte admin du panel (indépendant des comptes SSH/root du VPS).
+// User is an admin account for the panel (independent from the VPS's SSH/root accounts).
 type User struct {
 	ID           string    `json:"id"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"passwordHash"`
 	Salt         string    `json:"salt"`
-	Role         string    `json:"role"` // "admin" ou "viewer"
+	Role         string    `json:"role"` // "admin" or "viewer"
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
-// DBConnection est une connexion enregistrée vers une base de données externe.
+// DBConnection is a saved connection to an external database.
 type DBConnection struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
-	Driver   string `json:"driver"` // "mysql" ou "postgres"
+	Driver   string `json:"driver"` // "mysql" or "postgres"
 	Host     string `json:"host"`
 	Port     string `json:"port"`
 	User     string `json:"user"`
@@ -31,17 +31,17 @@ type DBConnection struct {
 	DBName   string `json:"dbname"`
 }
 
-// Deployment est une application déployée sur le VPS.
+// Deployment is an application deployed on the VPS.
 type Deployment struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Stack       string    `json:"stack"`
-	SourceType  string    `json:"sourceType"` // "git" ou "upload"
-	SourceRef   string    `json:"sourceRef"`  // url git ou nom du zip
-	Path        string    `json:"path"`
-	Port        string    `json:"port"`
-	Container   string    `json:"container"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Stack      string    `json:"stack"`
+	SourceType string    `json:"sourceType"` // "git" or "upload"
+	SourceRef  string    `json:"sourceRef"`  // git URL or uploaded zip file name
+	Path       string    `json:"path"`
+	Port       string    `json:"port"`
+	Container  string    `json:"container"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type data struct {
@@ -50,9 +50,9 @@ type data struct {
 	Deployments []Deployment   `json:"deployments"`
 }
 
-// Store est un stockage JSON simple protégé par mutex. Suffisant pour un
-// panel d'admin avec peu de comptes et peu de déploiements ; pas fait pour
-// des milliers d'écritures concurrentes.
+// Store is a simple JSON-backed store guarded by a mutex. Good enough for an
+// admin panel with a handful of accounts and deployments; not built for
+// thousands of concurrent writes.
 type Store struct {
 	mu   sync.RWMutex
 	path string
@@ -86,7 +86,7 @@ func (s *Store) load() error {
 	return json.Unmarshal(b, &s.d)
 }
 
-// saveLocked écrit le fichier. Le mutex doit déjà être verrouillé (write lock) par l'appelant.
+// saveLocked writes the file. The caller must already hold the write lock.
 func (s *Store) saveLocked() error {
 	b, err := json.MarshalIndent(s.d, "", "  ")
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *Store) AddUser(u User) error {
 	defer s.mu.Unlock()
 	for _, existing := range s.d.Users {
 		if existing.Username == u.Username {
-			return errors.New("ce nom d'utilisateur existe déjà")
+			return errors.New("this username already exists")
 		}
 	}
 	s.d.Users = append(s.d.Users, u)
@@ -163,10 +163,10 @@ func (s *Store) DeleteUser(id string) error {
 		}
 	}
 	if idx == -1 {
-		return errors.New("utilisateur introuvable")
+		return errors.New("user not found")
 	}
 	if s.d.Users[idx].Role == "admin" && adminCount <= 1 {
-		return errors.New("impossible de supprimer le dernier compte admin")
+		return errors.New("cannot delete the last remaining admin account")
 	}
 	s.d.Users = append(s.d.Users[:idx], s.d.Users[idx+1:]...)
 	return s.saveLocked()
@@ -210,7 +210,7 @@ func (s *Store) DeleteDBConnection(id string) error {
 		}
 	}
 	if idx == -1 {
-		return errors.New("connexion introuvable")
+		return errors.New("connection not found")
 	}
 	s.d.DBConns = append(s.d.DBConns[:idx], s.d.DBConns[idx+1:]...)
 	return s.saveLocked()
@@ -231,7 +231,7 @@ func (s *Store) AddDeployment(dep Deployment) error {
 	defer s.mu.Unlock()
 	for _, existing := range s.d.Deployments {
 		if existing.Name == dep.Name {
-			return errors.New("un déploiement avec ce nom existe déjà")
+			return errors.New("a deployment with this name already exists")
 		}
 	}
 	s.d.Deployments = append(s.d.Deployments, dep)
@@ -248,7 +248,7 @@ func (s *Store) DeleteDeployment(name string) error {
 		}
 	}
 	if idx == -1 {
-		return errors.New("déploiement introuvable")
+		return errors.New("deployment not found")
 	}
 	s.d.Deployments = append(s.d.Deployments[:idx], s.d.Deployments[idx+1:]...)
 	return s.saveLocked()

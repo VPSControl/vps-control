@@ -12,18 +12,18 @@ import (
 	"vpscontrol/internal/middleware"
 )
 
-// FileHandlers expose un gestionnaire de fichiers scopé à Root : impossible
-// de sortir de ce dossier (protection contre les path traversal du type ../../).
+// FileHandlers exposes a file manager scoped to Root: it's impossible to
+// escape this directory (protects against ../.. path traversal).
 type FileHandlers struct {
 	Root string
 }
 
-// resolve nettoie le chemin demandé et vérifie qu'il reste sous Root.
+// resolve cleans up the requested path and checks it stays under Root.
 func (h *FileHandlers) resolve(rel string) (string, error) {
 	if rel == "" {
 		rel = "."
 	}
-	cleaned := filepath.Clean("/" + rel) // force un chemin absolu relatif à Root, empêche "../.."
+	cleaned := filepath.Clean("/" + rel) // forces an absolute path relative to Root, blocks "../.."
 	full := filepath.Join(h.Root, cleaned)
 	rootAbs, err := filepath.Abs(h.Root)
 	if err != nil {
@@ -34,7 +34,7 @@ func (h *FileHandlers) resolve(rel string) (string, error) {
 		return "", err
 	}
 	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(os.PathSeparator)) {
-		return "", errors.New("chemin en dehors du dossier autorisé")
+		return "", errors.New("path outside of the allowed directory")
 	}
 	return fullAbs, nil
 }
@@ -56,7 +56,7 @@ func (h *FileHandlers) List(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := os.ReadDir(full)
 	if err != nil {
-		middleware.JSONError(w, http.StatusNotFound, "dossier introuvable: "+err.Error())
+		middleware.JSONError(w, http.StatusNotFound, "directory not found: "+err.Error())
 		return
 	}
 	out := make([]fileEntry, 0, len(entries))
@@ -82,7 +82,7 @@ func (h *FileHandlers) List(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, out)
 }
 
-const maxEditableFileSize = 2 * 1024 * 1024 // 2 Mo : au-delà, on propose seulement le téléchargement
+const maxEditableFileSize = 2 * 1024 * 1024 // 2 MB: beyond that, only download is offered
 
 func (h *FileHandlers) ReadContent(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
@@ -93,15 +93,15 @@ func (h *FileHandlers) ReadContent(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(full)
 	if err != nil {
-		middleware.JSONError(w, http.StatusNotFound, "fichier introuvable")
+		middleware.JSONError(w, http.StatusNotFound, "file not found")
 		return
 	}
 	if info.IsDir() {
-		middleware.JSONError(w, http.StatusBadRequest, "c'est un dossier")
+		middleware.JSONError(w, http.StatusBadRequest, "this is a directory")
 		return
 	}
 	if info.Size() > maxEditableFileSize {
-		middleware.JSONError(w, http.StatusRequestEntityTooLarge, "fichier trop volumineux pour l'éditeur, utilisez le téléchargement")
+		middleware.JSONError(w, http.StatusRequestEntityTooLarge, "file too large for the editor, use download instead")
 		return
 	}
 	b, err := os.ReadFile(full)
@@ -121,7 +121,7 @@ func (h *FileHandlers) WriteContent(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxEditableFileSize+1))
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "erreur de lecture du contenu")
+		middleware.JSONError(w, http.StatusBadRequest, "error reading the content")
 		return
 	}
 	if err := os.WriteFile(full, body, 0o644); err != nil {
@@ -148,7 +148,7 @@ func (h *FileHandlers) Mkdir(w http.ResponseWriter, r *http.Request) {
 func (h *FileHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
 	if rel == "" || rel == "." || rel == "/" {
-		middleware.JSONError(w, http.StatusBadRequest, "suppression de la racine refusée")
+		middleware.JSONError(w, http.StatusBadRequest, "refusing to delete the root directory")
 		return
 	}
 	full, err := h.resolve(rel)
@@ -172,14 +172,14 @@ func (h *FileHandlers) Download(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := os.Stat(full)
 	if err != nil || info.IsDir() {
-		middleware.JSONError(w, http.StatusNotFound, "fichier introuvable")
+		middleware.JSONError(w, http.StatusNotFound, "file not found")
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+filepath.Base(full)+"\"")
 	http.ServeFile(w, r, full)
 }
 
-const maxUploadSize = 200 * 1024 * 1024 // 200 Mo
+const maxUploadSize = 200 * 1024 * 1024 // 200 MB
 
 func (h *FileHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
@@ -194,12 +194,12 @@ func (h *FileHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "upload trop volumineux ou invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "upload too large or invalid")
 		return
 	}
 	files := r.MultipartForm.File["file"]
 	if len(files) == 0 {
-		middleware.JSONError(w, http.StatusBadRequest, "aucun fichier reçu (champ 'file' attendu)")
+		middleware.JSONError(w, http.StatusBadRequest, "no file received (expected field 'file')")
 		return
 	}
 	saved := make([]string, 0, len(files))

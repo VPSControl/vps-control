@@ -1,5 +1,5 @@
 [Unit]
-Description=Vérification et application des mises à jour VPS Control
+Description=Check for and apply VPS Control updates
 After=network-online.target
 
 [Service]

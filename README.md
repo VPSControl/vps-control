@@ -1,77 +1,74 @@
 <p align="center">
-  <img src="web/assets/logo-dark-bg.jpg" width="150" alt="VPS Control">
+  <img src="web/assets/logo-full.jpg" width="150" alt="VPS Control">
 </p>
 
 <h1 align="center">VPS Control</h1>
 
 <p align="center">
-  Un panel web open source pour administrer un VPS — dans l'esprit de Pterodactyl,
-  mais généraliste : fichiers, services Docker, déploiements, bases de données.
+  An open-source web panel for administering a VPS — in the spirit of Pterodactyl,
+  but general-purpose: files, Docker services, deployments, databases.
 </p>
 
 <p align="center">
-  <a href="https://vpscontrol.wazestudio.com">Site &amp; documentation</a> ·
-  <a href="https://vpscontrol.wazestudio.com/docs.html">Guide d'installation</a> ·
-  <a href="#licence">MIT</a>
+  <a href="https://vpscontrol.wazestudio.com">Site &amp; docs</a> ·
+  <a href="https://vpscontrol.wazestudio.com/docs.html">Installation guide</a> ·
+  <a href="#license">MIT</a>
 </p>
 
 ---
 
-## C'est quoi
+## What is this
 
-J'en avais marre de faire les mêmes gestes manuels sur chaque VPS que je
-montais : se connecter en SSH, chercher le bon dossier en SFTP, taper
-`docker ps` puis `docker logs` puis `docker restart`, éditer un `.env` à la
-main... VPS Control regroupe tout ça derrière une interface web unique,
-avec ses propres comptes admin (rien à voir avec vos accès SSH/root).
+I got tired of doing the same manual steps on every VPS I spun up:
+SSH in, hunt for the right folder over SFTP, type `docker ps` then
+`docker logs` then `docker restart`, hand-edit a `.env` file... VPS Control
+puts all of that behind a single web interface, with its own admin accounts
+(nothing to do with your SSH/root access).
 
-Ce n'est pas un remplaçant de Kubernetes ou d'un vrai PaaS — c'est un outil
-pour les gens qui gèrent un ou quelques VPS eux-mêmes et qui veulent y voir
-plus clair sans y passer leur soirée.
+It's not a replacement for Kubernetes or a real PaaS — it's a tool for
+people who manage one or a few VPS instances themselves and want some
+clarity without spending their evening on it.
 
-## Fonctionnalités
+## Features
 
-- **Comptes admin propres au panel**, séparés du SSH/root. Multi-comptes
-  (admin / lecture seule).
-- **Gestionnaire de fichiers** dans le navigateur : parcourir, éditer,
-  uploader, télécharger, supprimer — sans ouvrir de client SFTP.
-- **Services Docker** : liste des conteneurs, start / stop / restart /
-  suppression, logs, en cliquant sur un bouton plutôt qu'en tapant la
-  commande.
-- **Déploiement d'applications** depuis un dépôt GitHub public ou une
-  archive `.zip`, avec détection automatique du stack (Laravel/PHP, Node.js,
-  Python, site statique) et génération du `Dockerfile` si le projet n'en a
-  pas déjà un.
-- **Navigateur de base de données** : connexion MySQL/PostgreSQL, tables,
-  lignes, requêtes SQL libres.
-- **Mises à jour intégrées** : un bouton dans le panel (ou un minuteur
-  quotidien, si activé) qui récupère la dernière version, recompile et
-  redémarre.
-- **HTTPS pris en charge à l'installation**, que vous ayez un nom de domaine
-  (certificat Let's Encrypt via Certbot) ou non (certificat auto-signé,
-  accès direct par IP).
+- **Admin accounts that belong to the panel**, separate from SSH/root.
+  Multiple accounts (admin / read-only).
+- **Browser-based file manager**: browse, edit, upload, download, delete —
+  no SFTP client needed.
+- **Docker services**: list containers, start / stop / restart / remove,
+  logs, all by clicking a button instead of typing the command.
+- **Application deployment** from a public GitHub repo or a `.zip` archive,
+  with automatic stack detection (Laravel/PHP, Node.js, Python, static
+  sites) and `Dockerfile` generation if the project doesn't already have one.
+- **Database browser**: MySQL/PostgreSQL connections, tables, rows,
+  free-form SQL queries.
+- **Built-in updates**: a button in the panel (or a daily timer, if
+  enabled) that pulls the latest version, rebuilds and restarts.
+- **HTTPS handled at install time**, whether you have a domain name
+  (Let's Encrypt certificate via Certbot) or not (self-signed certificate,
+  direct IP access).
 
-## Pourquoi c'est léger
+## Why it's lightweight
 
-Le panel est un **unique binaire Go** — le frontend (HTML/CSS/JS vanilla,
-aucun framework) est embarqué dedans via `go:embed`, donc rien à construire
-côté Node. Les comptes, connexions aux bases et déploiements vivent dans un
-simple fichier JSON local : pas de base de données à faire tourner pour le
-panel lui-même. Chaque application déployée, elle, tourne dans son propre
-conteneur Docker, isolée des autres.
+The panel is a **single Go binary** — the frontend (vanilla HTML/CSS/JS, no
+framework) is embedded into it via `go:embed`, so there's nothing to build
+on the Node side. Accounts, database connections and deployments live in a
+plain local JSON file: no database to run for the panel itself. Each
+deployed application, on the other hand, runs in its own Docker container,
+isolated from the others.
 
-R�sultat : ça tient confortablement sur un **VPS à 2 Go de RAM**, à côté des
-applications que vous y déployez.
+The result: it runs comfortably on a **2GB RAM VPS**, alongside whatever
+you deploy on it.
 
 ## Installation
 
-Sur un VPS Debian/Ubuntu fraîchement installé :
+On a freshly installed Debian/Ubuntu VPS:
 
 ```bash
 curl -fsSL https://install.vpscontrol.wazestudio.com | sudo bash
 ```
 
-Ou en clonant le dépôt vous-même :
+Or by cloning the repo yourself:
 
 ```bash
 git clone https://github.com/VPSControl/vps-control.git
@@ -79,93 +76,92 @@ cd vps-control
 sudo bash scripts/install.sh
 ```
 
-Le script installe Docker, Go et Nginx si nécessaire, compile le binaire, et
-installe un service `systemd`. Il vous pose ensuite deux questions :
+The script installs Docker, Go and Nginx if needed, builds the binary, and
+installs a `systemd` service. It then asks you two questions:
 
-1. **Un nom de domaine, ou l'IP du VPS ?** Avec un domaine, Certbot obtient
-   un certificat Let's Encrypt (il vous demandera lui-même votre email et
-   l'acceptation des conditions, comme d'habitude). Sans domaine, laissez la
-   réponse vide : le panel devient accessible en HTTPS directement sur
-   l'IP du VPS et un port de votre choix (certificat auto-signé — votre
-   navigateur affichera un avertissement la première fois, c'est normal).
-2. **Activer les mises à jour automatiques quotidiennes ?** Sinon, un
-   bouton dans l'onglet *Système* du panel fait la même chose à la demande.
+1. **A domain name, or the VPS's IP?** With a domain, Certbot obtains a
+   Let's Encrypt certificate (it will ask you for your email and to accept
+   the terms itself, as usual). Without a domain, leave the answer empty:
+   the panel becomes accessible over HTTPS directly on the VPS's IP and a
+   port of your choice (self-signed certificate — your browser will show a
+   warning the first time, that's expected).
+2. **Enable daily automatic updates?** Either way, a button in the panel's
+   *System* tab does the same thing on demand.
 
-À la première visite, un écran vous invite à créer le premier compte admin.
+On your first visit, a setup screen invites you to create the first admin
+account.
 
-Le guide complet (variables d'environnement, architecture, limites
-connues) est sur [vpscontrol.wazestudio.com/docs.html](https://vpscontrol.wazestudio.com/docs.html).
+The full guide (environment variables, architecture, known limitations) is
+at [vpscontrol.wazestudio.com/docs.html](https://vpscontrol.wazestudio.com/docs.html).
 
-## Variables d'environnement
+## Environment variables
 
-Modifiables dans `/etc/systemd/system/vpscontrol.service`, puis
+Editable in `/etc/systemd/system/vpscontrol.service`, then
 `systemctl daemon-reload && systemctl restart vpscontrol`.
 
-| Variable | Par défaut | Rôle |
+| Variable | Default | Purpose |
 |---|---|---|
-| `VPSCONTROL_LISTEN` | `127.0.0.1:8090` | Adresse d'écoute du panel (Nginx fait le reverse proxy) |
-| `VPSCONTROL_DATA_DIR` | `/opt/vpscontrol/data` | Comptes, connexions DB, déploiements (JSON) |
-| `VPSCONTROL_DEPLOY_ROOT` | `/opt/vpscontrol/apps` | Dossier des applications déployées |
-| `VPSCONTROL_FILES_ROOT` | `/home` | Racine exposée par le gestionnaire de fichiers |
-| `VPSCONTROL_SRC_DIR` | `/opt/vpscontrol-src` | Dossier du code source, utilisé pour les mises à jour |
-| `VPSCONTROL_REPO_URL` | `https://github.com/VPSControl/vps-control.git` | Dépôt d'origine, pour détecter les nouvelles versions |
+| `VPSCONTROL_LISTEN` | `127.0.0.1:8090` | Address the panel listens on (Nginx does the reverse proxying) |
+| `VPSCONTROL_DATA_DIR` | `/opt/vpscontrol/data` | Accounts, DB connections, deployments (JSON) |
+| `VPSCONTROL_DEPLOY_ROOT` | `/opt/vpscontrol/apps` | Folder for deployed applications |
+| `VPSCONTROL_FILES_ROOT` | `/home` | Root directory exposed by the file manager |
+| `VPSCONTROL_SRC_DIR` | `/opt/vpscontrol-src` | Source code folder, used for updates |
+| `VPSCONTROL_REPO_URL` | `https://github.com/VPSControl/vps-control.git` | Upstream repo, used to detect new versions |
 
-## Structure du projet
+## Project structure
 
 ```
 vps-control/
-├── main.go                     # routage HTTP, démarrage du serveur
+├── main.go                     # HTTP routing, server startup
 ├── internal/
-│   ├── auth/                   # hash de mot de passe, sessions signées
-│   ├── store/                  # stockage JSON (users, déploiements, connexions DB)
-│   ├── middleware/              # auth middleware, helpers JSON
-│   └── handlers/                # logique des endpoints API (fichiers, docker, deploy, db, système)
-├── web/                         # frontend du panel (HTML/CSS/JS vanilla, embarqué dans le binaire)
+│   ├── auth/                   # password hashing, signed sessions
+│   ├── store/                  # JSON storage (users, deployments, DB connections)
+│   ├── middleware/              # auth middleware, JSON helpers
+│   └── handlers/                # API endpoint logic (files, docker, deploy, db, system)
+├── web/                         # panel frontend (vanilla HTML/CSS/JS, embedded in the binary)
 ├── scripts/
-│   ├── install.sh               # installation (domaine/IP, HTTPS, mises à jour auto)
+│   ├── install.sh               # installer (domain/IP, HTTPS, auto-updates)
 │   ├── update.sh                # git pull + rebuild + restart
-│   ├── vpscontrol.service        # unité systemd du panel
-│   └── vpscontrol-update.{service,timer}  # minuteur de mise à jour automatique
+│   ├── vpscontrol.service        # panel's systemd unit
+│   └── vpscontrol-update.{service,timer}  # automatic-update timer
 └── go.mod
 ```
 
-Le site vitrine et l'installeur en une commande vivent dans un
-[dépôt séparé](https://github.com/VPSControl/vpscontrol-website) — ce sont
-de simples fichiers statiques, ils n'ont pas leur place à côté d'un projet Go.
+The marketing site and the one-line installer live in a
+[separate repo](https://github.com/VPSControl/vpscontrol-website) — they're
+plain static files, they have no business sitting next to a Go project.
 
-## Limites connues (honnêtes, pour la suite)
+## Known limitations (honest, for what's next)
 
-- **Un conteneur par app** — pas d'orchestration multi-conteneurs
-  automatique (pas de `docker-compose` généré), ce qui suffit pour la
-  plupart des petits projets mais limite les architectures plus complexes.
-- Les **mots de passe de connexion aux bases de données** sont stockés en
-  clair dans le fichier JSON local (permissions restreintes à root, mais
-  pas chiffrés).
-- Pas encore de **logs de build en direct** — l'appel API attend la fin du
-  build avant de répondre, donc le navigateur peut sembler figé une minute
-  ou deux sur un gros projet.
-- Le service **tourne en root** pour piloter Docker et parcourir les
-  fichiers du système — même choix que Wings (l'agent de Pterodactyl), mais
-  à avoir en tête.
-- Pas de rôles fins par déploiement : un compte "lecture seule" voit tout,
-  sans découpage par projet.
+- **One container per app** — no automatic multi-container orchestration
+  (no generated `docker-compose`), which is enough for most small projects
+  but limits more complex architectures.
+- **Database connection passwords** are stored in plain text in the local
+  JSON file (permissions restricted to root, but not encrypted).
+- No **live build logs** yet — the API call waits for the build to finish
+  before responding, so the browser can look stuck for a minute or two on a
+  large project.
+- The service **runs as root** to drive Docker and browse the system's
+  files — same choice Wings (Pterodactyl's agent) makes, but worth keeping
+  in mind.
+- No fine-grained roles per deployment: a "read-only" account sees
+  everything, with no per-project scoping.
 
 ## Roadmap
 
-- Logs de build en streaming (Server-Sent Events) pendant `docker build`
-- Chiffrement au repos des mots de passe de connexions DB
-- Templates docker-compose pour les stacks multi-conteneurs (app + DB + cache)
-- Webhooks GitHub pour redéployer automatiquement à chaque push
-- Historique des déploiements avec rollback
-- Statistiques CPU/RAM par conteneur sur le tableau de bord
+- Streaming build logs (Server-Sent Events) during `docker build`
+- Encryption at rest for database connection passwords
+- docker-compose templates for multi-container stacks (app + DB + cache)
+- GitHub webhooks to redeploy automatically on every push
+- Deployment history with rollback
+- Per-container CPU/RAM stats on the dashboard
 
-## Contribuer
+## Contributing
 
-Les issues et pull requests sont bienvenues sur
-[GitHub](https://github.com/VPSControl/vps-control). Pas de process
-compliqué : ouvrez une issue si vous voulez discuter d'un changement avant
-de vous lancer.
+Issues and pull requests are welcome on
+[GitHub](https://github.com/VPSControl/vps-control). No complicated
+process: open an issue if you want to discuss a change before diving in.
 
-## Licence
+## License
 
-MIT — voir [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE).

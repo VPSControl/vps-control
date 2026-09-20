@@ -31,25 +31,25 @@ type setupRequest struct {
 
 func (h *AuthHandlers) Setup(w http.ResponseWriter, r *http.Request) {
 	if h.Store.UserCount() > 0 {
-		middleware.JSONError(w, http.StatusConflict, "le panel a déjà été initialisé")
+		middleware.JSONError(w, http.StatusConflict, "the panel has already been set up")
 		return
 	}
 	var req setupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if !usernameRe.MatchString(req.Username) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom d'utilisateur invalide (3-32 caractères alphanumériques)")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid username (3-32 alphanumeric characters)")
 		return
 	}
 	if len(req.Password) < 8 {
-		middleware.JSONError(w, http.StatusBadRequest, "le mot de passe doit faire au moins 8 caractères")
+		middleware.JSONError(w, http.StatusBadRequest, "password must be at least 8 characters long")
 		return
 	}
 	hash, salt, err := auth.HashPassword(req.Password)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "erreur interne")
+		middleware.JSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	u := store.User{
@@ -76,12 +76,12 @@ type loginRequest struct {
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	u, ok := h.Store.FindUserByUsername(req.Username)
 	if !ok || !auth.VerifyPassword(req.Password, u.PasswordHash, u.Salt) {
-		middleware.JSONError(w, http.StatusUnauthorized, "identifiants incorrects")
+		middleware.JSONError(w, http.StatusUnauthorized, "incorrect credentials")
 		return
 	}
 	h.setSessionCookie(w, u.ID)
@@ -112,7 +112,7 @@ func (h *AuthHandlers) setSessionCookie(w http.ResponseWriter, userID string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // passer à true si servi en HTTPS direct (recommandé derrière un reverse proxy TLS)
+		Secure:   false, // set to true if served directly over HTTPS (recommended behind a TLS reverse proxy)
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   7 * 24 * 3600,
 	})

@@ -11,13 +11,12 @@ import (
 	"vpscontrol/internal/store"
 )
 
-// SystemHandlers regroupe les endpoints d'auto-administration du panel :
-// informations de version, vérification/déclenchement de mise à jour, et
-// statistiques pour le tableau de bord.
+// SystemHandlers groups the panel's self-administration endpoints: version
+// info, update check/trigger, and stats for the dashboard.
 type SystemHandlers struct {
 	Store   *store.Store
-	SrcDir  string // dossier où est cloné le code source (pour git rev-parse / mise à jour)
-	RepoURL string // dépôt git d'origine, utilisé pour comparer avec la dernière version distante
+	SrcDir  string // folder the source code is cloned into (for git rev-parse / updates)
+	RepoURL string // upstream git repo, used to compare against the latest remote version
 }
 
 func (h *SystemHandlers) Info(w http.ResponseWriter, r *http.Request) {
@@ -32,19 +31,19 @@ func (h *SystemHandlers) Info(w http.ResponseWriter, r *http.Request) {
 func (h *SystemHandlers) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 	localOut, err := runCommand(10*time.Second, "git", "-C", h.SrcDir, "rev-parse", "HEAD")
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "impossible de lire la version locale (le panel a-t-il été installé via git ?): "+localOut)
+		middleware.JSONError(w, http.StatusInternalServerError, "could not read the local version (was the panel installed via git?): "+localOut)
 		return
 	}
 	local := strings.TrimSpace(localOut)
 
 	remoteOut, err := runCommand(20*time.Second, "git", "ls-remote", h.RepoURL, "HEAD")
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadGateway, "impossible de contacter le dépôt distant: "+remoteOut)
+		middleware.JSONError(w, http.StatusBadGateway, "could not reach the remote repository: "+remoteOut)
 		return
 	}
 	fields := strings.Fields(remoteOut)
 	if len(fields) == 0 {
-		middleware.JSONError(w, http.StatusBadGateway, "réponse inattendue du dépôt distant")
+		middleware.JSONError(w, http.StatusBadGateway, "unexpected response from the remote repository")
 		return
 	}
 	remote := fields[0]
@@ -56,13 +55,13 @@ func (h *SystemHandlers) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Update planifie la mise à jour (git pull + rebuild + redémarrage du service)
-// via systemd-run, détachée du processus courant : comme ce processus est celui
-// qui va être redémarré, il ne peut pas attendre la fin de sa propre mise à jour.
+// Update schedules the update (git pull + rebuild + service restart) via
+// systemd-run, detached from the current process: since this process is the
+// one about to be restarted, it can't wait around for its own update to finish.
 func (h *SystemHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	updateScript := h.SrcDir + "/scripts/update.sh"
 	if _, err := os.Stat(updateScript); err != nil {
-		middleware.JSONError(w, http.StatusNotFound, "script de mise à jour introuvable ("+updateScript+"). Le panel a-t-il été installé via git ?")
+		middleware.JSONError(w, http.StatusNotFound, "update script not found ("+updateScript+"). Was the panel installed via git?")
 		return
 	}
 	shellCmd := "sleep 2 && bash " + updateScript + " >> /var/log/vpscontrol-update.log 2>&1"
@@ -70,15 +69,15 @@ func (h *SystemHandlers) Update(w http.ResponseWriter, r *http.Request) {
 		"--unit=vpscontrol-manual-update-"+strconv.FormatInt(time.Now().Unix(), 10),
 		"/bin/bash", "-c", shellCmd)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "impossible de lancer la mise à jour: "+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "could not start the update: "+out)
 		return
 	}
 	middleware.JSON(w, http.StatusOK, map[string]string{
-		"message": "Mise à jour lancée. Le panel va redémarrer dans quelques secondes.",
+		"message": "Update started. The panel will restart in a few seconds.",
 	})
 }
 
-// Stats alimente les cartes du tableau de bord.
+// Stats feeds the dashboard cards.
 func (h *SystemHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	servicesTotal, servicesRunning := dockerCounts()
 	diskUsed, diskTotal := diskUsage("/")

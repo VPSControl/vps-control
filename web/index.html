@@ -1,96 +1,96 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VPS Control</title>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<!-- ===== Écran de chargement ===== -->
+<!-- ===== Loading screen ===== -->
 <div id="screen-loading" class="screen center">
   <div class="spinner"></div>
 </div>
 
-<!-- ===== Écran d'initialisation (premier admin) ===== -->
+<!-- ===== Setup screen (first admin) ===== -->
 <div id="screen-setup" class="screen center hidden">
   <form id="form-setup" class="auth-card">
-    <img src="/assets/logo-dark-bg.jpg" alt="VPS Control" class="auth-logo">
-    <h1>Configuration initiale</h1>
-    <p class="muted">Créez le premier compte administrateur du panel. Ces identifiants sont propres à VPS Control — ils n'ont rien à voir avec les accès SSH ou root du serveur.</p>
-    <label>Nom d'utilisateur</label>
+    <img src="/assets/logo-full.jpg" alt="VPS Control" class="auth-logo">
+    <h1>Initial setup</h1>
+    <p class="muted">Create the panel's first admin account. These credentials belong to VPS Control — they have nothing to do with the server's SSH or root access.</p>
+    <label>Username</label>
     <input type="text" name="username" minlength="3" maxlength="32" required autocomplete="username">
-    <label>Mot de passe</label>
+    <label>Password</label>
     <input type="password" name="password" minlength="8" required autocomplete="new-password">
-    <button type="submit">Créer le compte admin</button>
+    <button type="submit">Create admin account</button>
     <p class="error" id="setup-error"></p>
   </form>
 </div>
 
-<!-- ===== Écran de connexion ===== -->
+<!-- ===== Login screen ===== -->
 <div id="screen-login" class="screen center hidden">
   <form id="form-login" class="auth-card">
-    <img src="/assets/logo-dark-bg.jpg" alt="VPS Control" class="auth-logo">
-    <h1>Connexion</h1>
-    <label>Nom d'utilisateur</label>
+    <img src="/assets/logo-full.jpg" alt="VPS Control" class="auth-logo">
+    <h1>Sign in</h1>
+    <label>Username</label>
     <input type="text" name="username" required autocomplete="username">
-    <label>Mot de passe</label>
+    <label>Password</label>
     <input type="password" name="password" required autocomplete="current-password">
-    <button type="submit">Se connecter</button>
+    <button type="submit">Sign in</button>
     <p class="error" id="login-error"></p>
   </form>
 </div>
 
-<!-- ===== Application principale ===== -->
+<!-- ===== Main application ===== -->
 <div id="screen-app" class="screen hidden">
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <img src="/assets/logo-dark-bg.jpg" alt="VPS Control">
+      <img src="/assets/logo-full.jpg" alt="VPS Control">
     </div>
     <nav>
-      <button class="nav-item active" data-tab="dashboard">Tableau de bord</button>
+      <button class="nav-item active" data-tab="dashboard">Dashboard</button>
       <button class="nav-item" data-tab="services">Services</button>
-      <button class="nav-item" data-tab="files">Fichiers</button>
-      <button class="nav-item" data-tab="deploy">Déployer</button>
-      <button class="nav-item" data-tab="databases">Bases de données</button>
-      <button class="nav-item" data-tab="users" id="nav-users">Utilisateurs</button>
-      <button class="nav-item" data-tab="system" id="nav-system">Système</button>
+      <button class="nav-item" data-tab="files">Files</button>
+      <button class="nav-item" data-tab="deploy">Deploy</button>
+      <button class="nav-item" data-tab="databases">Databases</button>
+      <button class="nav-item" data-tab="users" id="nav-users">Users</button>
+      <button class="nav-item" data-tab="system" id="nav-system">System</button>
     </nav>
     <div class="sidebar-footer">
       <span id="current-user" class="muted"></span>
-      <button id="btn-logout" class="link-btn">Déconnexion</button>
+      <button id="btn-logout" class="link-btn">Log out</button>
     </div>
   </aside>
 
   <main>
-    <!-- ---- Tableau de bord ---- -->
+    <!-- ---- Dashboard ---- -->
     <section id="tab-dashboard" class="tab active">
       <div class="tab-header">
-        <h2>Tableau de bord</h2>
-        <button id="btn-refresh-dashboard" class="btn-secondary">Actualiser</button>
+        <h2>Dashboard</h2>
+        <button id="btn-refresh-dashboard" class="btn-secondary">Refresh</button>
       </div>
       <div class="stat-grid">
         <div class="stat-card">
           <span class="stat-icon">🐳</span>
           <div>
             <div class="stat-value" id="stat-services">—</div>
-            <div class="stat-label">services actifs</div>
+            <div class="stat-label">running services</div>
           </div>
         </div>
         <div class="stat-card">
           <span class="stat-icon">🚀</span>
           <div>
             <div class="stat-value" id="stat-deployments">—</div>
-            <div class="stat-label">applications déployées</div>
+            <div class="stat-label">deployed apps</div>
           </div>
         </div>
         <div class="stat-card">
           <span class="stat-icon">💾</span>
           <div>
             <div class="stat-value" id="stat-disk">—</div>
-            <div class="stat-label">disque utilisé</div>
+            <div class="stat-label">disk used</div>
             <div class="stat-bar"><div class="stat-bar-fill" id="stat-disk-bar"></div></div>
           </div>
         </div>
@@ -98,7 +98,7 @@
           <span class="stat-icon">🧠</span>
           <div>
             <div class="stat-value" id="stat-mem">—</div>
-            <div class="stat-label">mémoire utilisée</div>
+            <div class="stat-label">memory used</div>
             <div class="stat-bar"><div class="stat-bar-fill" id="stat-mem-bar"></div></div>
           </div>
         </div>
@@ -109,140 +109,140 @@
     <section id="tab-services" class="tab">
       <div class="tab-header">
         <h2>Services</h2>
-        <button id="btn-refresh-services" class="btn-secondary">Actualiser</button>
+        <button id="btn-refresh-services" class="btn-secondary">Refresh</button>
       </div>
       <table class="data-table" id="services-table">
-        <thead><tr><th>Nom</th><th>Image</th><th>État</th><th>Ports</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
 
       <div class="card">
-        <h3>Ajouter une base de données rapide</h3>
+        <h3>Add a quick database</h3>
         <form id="form-db-service" class="inline-form">
-          <input name="name" placeholder="nom (ex: monapp)" required>
+          <input name="name" placeholder="name (e.g. myapp)" required>
           <select name="engine">
             <option value="mysql">MySQL</option>
             <option value="postgres">PostgreSQL</option>
           </select>
-          <input name="dbName" placeholder="nom de la base" required>
-          <input name="user" placeholder="utilisateur" required>
-          <input name="password" type="password" placeholder="mot de passe" required>
-          <input name="port" placeholder="port hôte" required style="max-width:100px">
-          <button type="submit">Créer</button>
+          <input name="dbName" placeholder="database name" required>
+          <input name="user" placeholder="user" required>
+          <input name="password" type="password" placeholder="password" required>
+          <input name="port" placeholder="host port" required style="max-width:100px">
+          <button type="submit">Create</button>
         </form>
       </div>
     </section>
 
-    <!-- ---- Fichiers ---- -->
+    <!-- ---- Files ---- -->
     <section id="tab-files" class="tab">
       <div class="tab-header">
-        <h2>Fichiers</h2>
+        <h2>Files</h2>
         <div id="files-breadcrumb" class="breadcrumb"></div>
       </div>
       <div class="toolbar">
-        <button id="btn-new-folder" class="btn-secondary">Nouveau dossier</button>
+        <button id="btn-new-folder" class="btn-secondary">New folder</button>
         <form id="form-upload" class="inline-form">
           <input type="file" name="file" required multiple>
-          <button type="submit">Uploader</button>
+          <button type="submit">Upload</button>
         </form>
       </div>
       <table class="data-table" id="files-table">
-        <thead><tr><th>Nom</th><th>Taille</th><th>Modifié</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="file-editor" class="card hidden">
         <div class="tab-header">
           <h3 id="file-editor-name"></h3>
           <div>
-            <button id="btn-save-file" class="btn-primary">Enregistrer</button>
-            <button id="btn-close-editor" class="btn-secondary">Fermer</button>
+            <button id="btn-save-file" class="btn-primary">Save</button>
+            <button id="btn-close-editor" class="btn-secondary">Close</button>
           </div>
         </div>
         <textarea id="file-editor-content" spellcheck="false"></textarea>
       </div>
     </section>
 
-    <!-- ---- Déploiement ---- -->
+    <!-- ---- Deploy ---- -->
     <section id="tab-deploy" class="tab">
-      <div class="tab-header"><h2>Déployer</h2></div>
+      <div class="tab-header"><h2>Deploy</h2></div>
 
       <div class="deploy-grid">
         <div class="card">
-          <h3>Depuis un dépôt GitHub public</h3>
+          <h3>From a public GitHub repo</h3>
           <form id="form-deploy-git">
-            <label>Nom de l'application</label>
-            <input name="name" placeholder="mon-app" pattern="[a-z0-9-]+" required>
-            <label>URL du dépôt</label>
-            <input name="repoUrl" placeholder="https://github.com/user/projet.git" required>
+            <label>Application name</label>
+            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+            <label>Repository URL</label>
+            <input name="repoUrl" placeholder="https://github.com/user/project.git" required>
             <label>Stack</label>
             <select name="stack">
-              <option value="auto">Détection automatique</option>
+              <option value="auto">Auto-detect</option>
               <option value="laravel">Laravel / PHP</option>
               <option value="node">Node.js</option>
               <option value="python">Python</option>
-              <option value="static">Site statique</option>
+              <option value="static">Static site</option>
             </select>
-            <label>Port exposé sur le VPS</label>
+            <label>Port exposed on the VPS</label>
             <input name="port" placeholder="8081" required>
-            <button type="submit">Déployer</button>
+            <button type="submit">Deploy</button>
           </form>
         </div>
 
         <div class="card">
-          <h3>Depuis un fichier .zip</h3>
+          <h3>From a .zip file</h3>
           <form id="form-deploy-upload">
-            <label>Nom de l'application</label>
-            <input name="name" placeholder="mon-app" pattern="[a-z0-9-]+" required>
-            <label>Archive .zip du projet</label>
+            <label>Application name</label>
+            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+            <label>Project .zip archive</label>
             <input type="file" name="archive" accept=".zip" required>
             <label>Stack</label>
             <select name="stack">
-              <option value="auto">Détection automatique</option>
+              <option value="auto">Auto-detect</option>
               <option value="laravel">Laravel / PHP</option>
               <option value="node">Node.js</option>
               <option value="python">Python</option>
-              <option value="static">Site statique</option>
+              <option value="static">Static site</option>
             </select>
-            <label>Port exposé sur le VPS</label>
+            <label>Port exposed on the VPS</label>
             <input name="port" placeholder="8082" required>
-            <button type="submit">Déployer</button>
+            <button type="submit">Deploy</button>
           </form>
         </div>
       </div>
 
       <p id="deploy-status" class="muted"></p>
 
-      <h3>Applications déployées</h3>
+      <h3>Deployed applications</h3>
       <table class="data-table" id="deployments-table">
-        <thead><tr><th>Nom</th><th>Stack</th><th>Port</th><th>Source</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Stack</th><th>Port</th><th>Source</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- ---- Bases de données ---- -->
+    <!-- ---- Databases ---- -->
     <section id="tab-databases" class="tab">
-      <div class="tab-header"><h2>Bases de données</h2></div>
+      <div class="tab-header"><h2>Databases</h2></div>
 
       <div class="card">
-        <h3>Connecter une base existante</h3>
+        <h3>Connect an existing database</h3>
         <form id="form-db-connection" class="inline-form">
-          <input name="name" placeholder="nom (libre)" required>
+          <input name="name" placeholder="name (free text)" required>
           <select name="driver">
             <option value="mysql">MySQL</option>
             <option value="postgres">PostgreSQL</option>
           </select>
-          <input name="host" placeholder="hôte (ex: localhost)" required>
+          <input name="host" placeholder="host (e.g. localhost)" required>
           <input name="port" placeholder="port" required style="max-width:90px">
-          <input name="user" placeholder="utilisateur" required>
-          <input name="password" type="password" placeholder="mot de passe">
-          <input name="dbname" placeholder="nom de la base" required>
-          <button type="submit">Connecter</button>
+          <input name="user" placeholder="user" required>
+          <input name="password" type="password" placeholder="password">
+          <input name="dbname" placeholder="database name" required>
+          <button type="submit">Connect</button>
         </form>
       </div>
 
       <div class="db-layout">
         <div>
-          <h3>Connexions</h3>
+          <h3>Connections</h3>
           <ul id="db-connections-list" class="simple-list"></ul>
         </div>
         <div>
@@ -258,50 +258,50 @@
         <div class="table-scroll"><table class="data-table" id="db-rows-table"></table></div>
 
         <details>
-          <summary>Requête SQL libre</summary>
+          <summary>Free-form SQL query</summary>
           <textarea id="db-query-input" placeholder="SELECT * FROM ..."></textarea>
-          <button id="btn-run-query" class="btn-primary">Exécuter</button>
+          <button id="btn-run-query" class="btn-primary">Run</button>
           <pre id="db-query-result" class="mono-block"></pre>
         </details>
       </div>
     </section>
 
-    <!-- ---- Utilisateurs ---- -->
+    <!-- ---- Users ---- -->
     <section id="tab-users" class="tab">
-      <div class="tab-header"><h2>Comptes administrateurs</h2></div>
+      <div class="tab-header"><h2>Admin accounts</h2></div>
       <div class="card">
-        <h3>Ajouter un compte</h3>
+        <h3>Add an account</h3>
         <form id="form-add-user" class="inline-form">
-          <input name="username" placeholder="nom d'utilisateur" required>
-          <input name="password" type="password" placeholder="mot de passe" required>
+          <input name="username" placeholder="username" required>
+          <input name="password" type="password" placeholder="password" required>
           <select name="role">
             <option value="admin">Admin</option>
-            <option value="viewer">Lecture seule</option>
+            <option value="viewer">Read-only</option>
           </select>
-          <button type="submit">Ajouter</button>
+          <button type="submit">Add</button>
         </form>
       </div>
       <table class="data-table" id="users-table">
-        <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Créé le</th><th>Actions</th></tr></thead>
+        <thead><tr><th>User</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>
 
-    <!-- ---- Système ---- -->
+    <!-- ---- System ---- -->
     <section id="tab-system" class="tab">
-      <div class="tab-header"><h2>Système</h2></div>
+      <div class="tab-header"><h2>System</h2></div>
       <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
         <div class="card">
-          <h3>Version installée</h3>
-          <p class="muted">Commit local : <code id="sys-local-commit">—</code></p>
-          <p class="muted">Dépôt : <code id="sys-repo-url">—</code></p>
-          <button id="btn-check-update" class="btn-secondary">Vérifier les mises à jour</button>
+          <h3>Installed version</h3>
+          <p class="muted">Local commit: <code id="sys-local-commit">—</code></p>
+          <p class="muted">Repository: <code id="sys-repo-url">—</code></p>
+          <button id="btn-check-update" class="btn-secondary">Check for updates</button>
           <p id="sys-update-status" class="muted" style="margin-top:10px;"></p>
         </div>
         <div class="card">
-          <h3>Mettre à jour</h3>
-          <p class="muted">Récupère la dernière version du dépôt, recompile le binaire et redémarre le service. Le panel sera indisponible quelques secondes.</p>
-          <button id="btn-run-update" class="btn-primary">Mettre à jour maintenant</button>
+          <h3>Update</h3>
+          <p class="muted">Pulls the latest version of the repo, rebuilds the binary and restarts the service. The panel will be unavailable for a few seconds.</p>
+          <button id="btn-run-update" class="btn-primary">Update now</button>
           <p id="sys-update-result" class="muted" style="margin-top:10px;"></p>
         </div>
       </div>

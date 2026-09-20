@@ -29,7 +29,7 @@ func dsnFor(c store.DBConnection) (driverName, dsn string, err error) {
 	case "postgres":
 		return "postgres", fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", c.Host, c.Port, c.User, c.Password, c.DBName), nil
 	default:
-		return "", "", fmt.Errorf("driver non supporté: %s", c.Driver)
+		return "", "", fmt.Errorf("unsupported driver: %s", c.Driver)
 	}
 }
 
@@ -65,7 +65,7 @@ type connRequest struct {
 func (h *DatabaseHandlers) AddConnection(w http.ResponseWriter, r *http.Request) {
 	var req connRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	c := store.DBConnection{
@@ -74,7 +74,7 @@ func (h *DatabaseHandlers) AddConnection(w http.ResponseWriter, r *http.Request)
 	}
 	db, err := openDB(c)
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "connexion impossible: "+err.Error())
+		middleware.JSONError(w, http.StatusBadRequest, "connection failed: "+err.Error())
 		return
 	}
 	db.Close()
@@ -110,8 +110,8 @@ func (h *DatabaseHandlers) DeleteConnection(w http.ResponseWriter, r *http.Reque
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// extractConnID récupère l'id de connexion en début de chemin après un préfixe donné,
-// ex: /api/db/connections/<id>/tables -> <id>
+// extractConnID pulls the connection id from the start of the path after a
+// given prefix, e.g. /api/db/connections/<id>/tables -> <id>
 func extractConnID(path, prefix string) (id, rest string) {
 	trimmed := strings.TrimPrefix(path, prefix)
 	parts := strings.SplitN(trimmed, "/", 2)
@@ -127,7 +127,7 @@ func extractConnID(path, prefix string) (id, rest string) {
 func (h *DatabaseHandlers) getConnOr404(w http.ResponseWriter, id string) (store.DBConnection, bool) {
 	c, ok := h.Store.FindDBConnection(id)
 	if !ok {
-		middleware.JSONError(w, http.StatusNotFound, "connexion introuvable")
+		middleware.JSONError(w, http.StatusNotFound, "connection not found")
 		return store.DBConnection{}, false
 	}
 	return c, true
@@ -172,16 +172,16 @@ func (h *DatabaseHandlers) ListTables(w http.ResponseWriter, r *http.Request) {
 var identRe = regexp.MustCompile(`^[a-zA-Z0-9_]{1,64}$`)
 
 func (h *DatabaseHandlers) TableRows(w http.ResponseWriter, r *http.Request) {
-	// chemin: /api/db/connections/{id}/tables/{table}/rows
+	// path: /api/db/connections/{id}/tables/{table}/rows
 	rest := strings.TrimPrefix(r.URL.Path, "/api/db/connections/")
 	parts := strings.SplitN(rest, "/", 4) // id, "tables", table, "rows"
 	if len(parts) < 3 {
-		middleware.JSONError(w, http.StatusBadRequest, "chemin invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid path")
 		return
 	}
 	id, table := parts[0], parts[2]
 	if !identRe.MatchString(table) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom de table invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid table name")
 		return
 	}
 	c, ok := h.getConnOr404(w, id)
@@ -227,8 +227,8 @@ type queryRequest struct {
 	SQL string `json:"sql"`
 }
 
-// RunQuery exécute une requête SQL libre. Réservé aux admins (voir routage) :
-// c'est volontairement puissant, donc dangereux si mal utilisé.
+// RunQuery runs a free-form SQL query. Admin-only (see routing): this is
+// deliberately powerful, and therefore dangerous if misused.
 func (h *DatabaseHandlers) RunQuery(w http.ResponseWriter, r *http.Request) {
 	id, _ := extractConnID(r.URL.Path, "/api/db/connections/")
 	id = strings.TrimSuffix(id, "/query")
@@ -238,7 +238,7 @@ func (h *DatabaseHandlers) RunQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	var req queryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	db, err := openDB(c)
@@ -267,7 +267,7 @@ func (h *DatabaseHandlers) RunQuery(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]int64{"rowsAffected": affected})
 }
 
-// runSelect exécute une requête de lecture et retourne colonnes + lignes en JSON-friendly.
+// runSelect runs a read query and returns columns + rows in a JSON-friendly shape.
 func runSelect(db *sql.DB, query string) (map[string]interface{}, error) {
 	rows, err := db.Query(query)
 	if err != nil {

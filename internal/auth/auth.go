@@ -1,8 +1,8 @@
-// Package auth gère les mots de passe et les sessions du panel.
+// Package auth handles passwords and sessions for the panel.
 //
-// Pas de dépendance externe volontairement (bcrypt n'est pas dans la stdlib) :
-// on implémente un PBKDF2-HMAC-SHA256 maison, standard et éprouvé
-// cryptographiquement, avec un nombre d'itérations élevé.
+// No external dependency on purpose (bcrypt isn't in the standard library):
+// we implement a homemade PBKDF2-HMAC-SHA256, a standard and well-tested
+// construction, with a high iteration count.
 package auth
 
 import (
@@ -46,7 +46,7 @@ func pbkdf2(password, salt []byte, iterations, keyLen int) []byte {
 	return out[:keyLen]
 }
 
-// HashPassword génère un sel aléatoire et retourne (hashHex, saltHex).
+// HashPassword generates a random salt and returns (hashHex, saltHex).
 func HashPassword(password string) (hashHex string, saltHex string, err error) {
 	salt := make([]byte, 16)
 	if _, err = rand.Read(salt); err != nil {
@@ -56,7 +56,7 @@ func HashPassword(password string) (hashHex string, saltHex string, err error) {
 	return hex.EncodeToString(hash), hex.EncodeToString(salt), nil
 }
 
-// VerifyPassword vérifie un mot de passe en temps constant.
+// VerifyPassword checks a password in constant time.
 func VerifyPassword(password, hashHex, saltHex string) bool {
 	salt, err := hex.DecodeString(saltHex)
 	if err != nil {
@@ -72,11 +72,11 @@ func VerifyPassword(password, hashHex, saltHex string) bool {
 
 // ---- Sessions ----
 //
-// Un token de session est : base64(userID|expiryUnix) + "." + base64(hmac-sha256)
-// Signé avec une clé secrète générée au premier démarrage et stockée sur disque
-// (voir cmd principal). Pas d'état côté serveur à part cette clé : simple et léger.
+// A session token is: base64(userID|expiryUnix) + "." + base64(hmac-sha256).
+// Signed with a secret key generated on first boot and stored on disk (see
+// main.go). No server-side state beyond that key: simple and lightweight.
 
-var ErrInvalidToken = errors.New("session invalide ou expirée")
+var ErrInvalidToken = errors.New("invalid or expired session")
 
 func CreateSessionToken(secret []byte, userID string, ttl time.Duration) string {
 	expiry := time.Now().Add(ttl).Unix()
@@ -118,7 +118,7 @@ func ParseSessionToken(secret []byte, token string) (userID string, err error) {
 	return fields[0], nil
 }
 
-// NewSecret génère une clé secrète de 32 octets.
+// NewSecret generates a 32-byte secret key.
 func NewSecret() ([]byte, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)

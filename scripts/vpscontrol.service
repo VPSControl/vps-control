@@ -14,9 +14,9 @@ Environment=VPSCONTROL_DEPLOY_ROOT=/opt/vpscontrol/apps
 Environment=VPSCONTROL_FILES_ROOT=/home
 Environment=VPSCONTROL_SRC_DIR=/opt/vpscontrol-src
 Environment=VPSCONTROL_REPO_URL=https://github.com/VPSControl/vps-control.git
-# VPS Control doit pouvoir piloter Docker (socket) et lire/écrire sous
-# VPSCONTROL_FILES_ROOT : on tourne en root, comme le fait Wings pour Pterodactyl.
-# Restreignez VPSCONTROL_FILES_ROOT à un dossier précis si vous préférez limiter la portée.
+# VPS Control needs to drive Docker (its socket) and read/write under
+# VPSCONTROL_FILES_ROOT: it runs as root, same as Wings does for Pterodactyl.
+# Restrict VPSCONTROL_FILES_ROOT to a specific folder if you'd rather narrow its scope.
 User=root
 
 [Install]

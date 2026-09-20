@@ -1,4 +1,4 @@
-// VPS Control — frontend vanilla JS, sans dépendance externe (léger, pas de build step).
+// VPS Control — vanilla JS frontend, no external dependency (lightweight, no build step).
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -31,16 +31,16 @@ async function api(path, options = {}) {
     credentials: 'same-origin',
   });
   let data = null;
-  try { data = await res.json(); } catch (_) { /* réponse vide */ }
+  try { data = await res.json(); } catch (_) { /* empty response */ }
   if (!res.ok) {
-    const message = (data && data.error) || `Erreur ${res.status}`;
+    const message = (data && data.error) || `Error ${res.status}`;
     throw new Error(message);
   }
   return data;
 }
 
 // ---------------------------------------------------------------------
-// Démarrage : vérifie si le panel a besoin d'être initialisé, sinon login
+// Boot: checks whether the panel needs setup, otherwise shows login
 // ---------------------------------------------------------------------
 async function boot() {
   try {
@@ -99,7 +99,7 @@ $('#btn-logout').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------
-// Navigation entre onglets
+// Tab navigation
 // ---------------------------------------------------------------------
 $$('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -117,11 +117,11 @@ $$('.nav-item').forEach(btn => {
 });
 
 // ---------------------------------------------------------------------
-// Tableau de bord
+// Dashboard
 // ---------------------------------------------------------------------
 function formatBytes(bytes) {
-  if (!bytes) return '0 o';
-  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0, n = bytes;
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(1)} ${units[i]}`;
@@ -144,7 +144,7 @@ async function loadDashboard() {
 $('#btn-refresh-dashboard').addEventListener('click', loadDashboard);
 
 // ---------------------------------------------------------------------
-// Système (version, mise à jour)
+// System (version, updates)
 // ---------------------------------------------------------------------
 async function loadSystemInfo() {
   try {
@@ -158,26 +158,26 @@ async function loadSystemInfo() {
 
 $('#btn-check-update').addEventListener('click', async () => {
   const status = $('#sys-update-status');
-  status.textContent = 'Vérification en cours...';
+  status.textContent = 'Checking...';
   try {
     const res = await api('/api/system/check-update', { method: 'POST' });
     status.textContent = res.updateAvailable
-      ? `Mise à jour disponible : ${res.localCommit} → ${res.remoteCommit}`
-      : `Déjà à jour (${res.localCommit}).`;
+      ? `Update available: ${res.localCommit} → ${res.remoteCommit}`
+      : `Already up to date (${res.localCommit}).`;
   } catch (err) {
-    status.textContent = 'Erreur : ' + err.message;
+    status.textContent = 'Error: ' + err.message;
   }
 });
 
 $('#btn-run-update').addEventListener('click', async () => {
-  if (!confirm('Lancer la mise à jour maintenant ? Le panel va redémarrer.')) return;
+  if (!confirm('Run the update now? The panel will restart.')) return;
   const result = $('#sys-update-result');
-  result.textContent = 'Mise à jour en cours...';
+  result.textContent = 'Updating...';
   try {
     const res = await api('/api/system/update', { method: 'POST' });
     result.textContent = res.message;
   } catch (err) {
-    result.textContent = 'Erreur : ' + err.message;
+    result.textContent = 'Error: ' + err.message;
   }
 });
 
@@ -186,11 +186,11 @@ $('#btn-run-update').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 async function loadServices() {
   const tbody = $('#services-table tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="muted">Chargement...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
   try {
     const services = await api('/api/services');
     if (services.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">Aucun service Docker pour le moment.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No Docker service yet.</td></tr>';
       return;
     }
     tbody.innerHTML = '';
@@ -205,11 +205,11 @@ async function loadServices() {
         <td></td>`;
       const actionsCell = tr.querySelector('td:last-child');
       actionsCell.append(
-        actionBtn('Démarrer', () => serviceAction(s.Names, 'start')),
+        actionBtn('Start', () => serviceAction(s.Names, 'start')),
         actionBtn('Stop', () => serviceAction(s.Names, 'stop')),
-        actionBtn('Redémarrer', () => serviceAction(s.Names, 'restart')),
+        actionBtn('Restart', () => serviceAction(s.Names, 'restart')),
         actionBtn('Logs', () => showLogs(s.Names)),
-        actionBtn('Supprimer', () => deleteService(s.Names), true),
+        actionBtn('Remove', () => deleteService(s.Names), true),
       );
       tbody.appendChild(tr);
     });
@@ -230,7 +230,7 @@ function actionBtn(label, onClick, danger = false) {
 async function serviceAction(name, action) {
   try {
     await api(`/api/services/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
-    toast(`Service ${name} : ${action} effectué`);
+    toast(`Service ${name}: ${action} done`);
     loadServices();
   } catch (err) {
     toast(err.message, true);
@@ -238,10 +238,10 @@ async function serviceAction(name, action) {
 }
 
 async function deleteService(name) {
-  if (!confirm(`Supprimer définitivement le service "${name}" ?`)) return;
+  if (!confirm(`Permanently remove the service "${name}"?`)) return;
   try {
     await api(`/api/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    toast(`Service ${name} supprimé`);
+    toast(`Service ${name} removed`);
     loadServices();
   } catch (err) {
     toast(err.message, true);
@@ -251,7 +251,7 @@ async function deleteService(name) {
 async function showLogs(name) {
   try {
     const data = await api(`/api/services/${encodeURIComponent(name)}/logs`);
-    alert(`Logs de ${name} (300 dernières lignes) :\n\n${data.logs || '(vide)'}`);
+    alert(`Logs for ${name} (last 300 lines):\n\n${data.logs || '(empty)'}`);
   } catch (err) {
     toast(err.message, true);
   }
@@ -264,7 +264,7 @@ $('#form-db-service').addEventListener('submit', async (e) => {
   const fd = Object.fromEntries(new FormData(e.target));
   try {
     const res = await api('/api/services/database', { method: 'POST', body: JSON.stringify(fd) });
-    toast(`Base de données créée : conteneur ${res.container}`);
+    toast(`Database created: container ${res.container}`);
     e.target.reset();
     loadServices();
   } catch (err) {
@@ -273,17 +273,17 @@ $('#form-db-service').addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------
-// Fichiers
+// Files
 // ---------------------------------------------------------------------
 async function loadFiles(path) {
   filesCurrentPath = path || '';
   renderBreadcrumb();
   const tbody = $('#files-table tbody');
-  tbody.innerHTML = '<tr><td colspan="4" class="muted">Chargement...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
   try {
     const entries = await api(`/api/files?path=${encodeURIComponent(filesCurrentPath)}`);
     if (entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="muted">Dossier vide.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">Empty folder.</td></tr>';
       return;
     }
     tbody.innerHTML = '';
@@ -304,11 +304,11 @@ async function loadFiles(path) {
       }
       const actions = tr.querySelector('td:last-child');
       if (!entry.isDir) {
-        actions.append(actionBtn('Télécharger', () => {
+        actions.append(actionBtn('Download', () => {
           window.location = `/api/files/download?path=${encodeURIComponent(entry.path)}`;
         }));
       }
-      actions.append(actionBtn('Supprimer', () => deleteFile(entry.path), true));
+      actions.append(actionBtn('Delete', () => deleteFile(entry.path), true));
       tbody.appendChild(tr);
     });
   } catch (err) {
@@ -321,7 +321,7 @@ function renderBreadcrumb() {
   const parts = filesCurrentPath.split('/').filter(Boolean);
   container.innerHTML = '';
   const root = document.createElement('span');
-  root.textContent = '/ racine';
+  root.textContent = '/ root';
   root.addEventListener('click', () => loadFiles(''));
   container.appendChild(root);
   let acc = '';
@@ -338,10 +338,10 @@ function renderBreadcrumb() {
 }
 
 async function deleteFile(path) {
-  if (!confirm(`Supprimer "${path}" ?`)) return;
+  if (!confirm(`Delete "${path}"?`)) return;
   try {
     await api(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
-    toast('Supprimé');
+    toast('Deleted');
     loadFiles(filesCurrentPath);
   } catch (err) {
     toast(err.message, true);
@@ -374,14 +374,14 @@ $('#btn-save-file').addEventListener('click', async () => {
       body: $('#file-editor-content').value,
       headers: { 'Content-Type': 'text/plain' },
     });
-    toast('Fichier enregistré');
+    toast('File saved');
   } catch (err) {
     toast(err.message, true);
   }
 });
 
 $('#btn-new-folder').addEventListener('click', async () => {
-  const name = prompt('Nom du nouveau dossier :');
+  const name = prompt('New folder name:');
   if (!name) return;
   const path = (filesCurrentPath ? filesCurrentPath + '/' : '') + name;
   try {
@@ -397,7 +397,7 @@ $('#form-upload').addEventListener('submit', async (e) => {
   const fd = new FormData(e.target);
   try {
     await api(`/api/files/upload?path=${encodeURIComponent(filesCurrentPath)}`, { method: 'POST', body: fd });
-    toast('Upload terminé');
+    toast('Upload complete');
     e.target.reset();
     loadFiles(filesCurrentPath);
   } catch (err) {
@@ -406,15 +406,15 @@ $('#form-upload').addEventListener('submit', async (e) => {
 });
 
 // ---------------------------------------------------------------------
-// Déploiement
+// Deployment
 // ---------------------------------------------------------------------
 async function loadDeployments() {
   const tbody = $('#deployments-table tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="muted">Chargement...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
   try {
     const deployments = await api('/api/deployments');
     if (deployments.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">Aucune application déployée pour le moment.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No application deployed yet.</td></tr>';
       return;
     }
     tbody.innerHTML = '';
@@ -428,8 +428,8 @@ async function loadDeployments() {
         <td></td>`;
       const actions = tr.querySelector('td:last-child');
       actions.append(
-        actionBtn('Redéployer', () => redeploy(d.name)),
-        actionBtn('Supprimer', () => deleteDeployment(d.name), true),
+        actionBtn('Redeploy', () => redeploy(d.name)),
+        actionBtn('Delete', () => deleteDeployment(d.name), true),
       );
       tbody.appendChild(tr);
     });
@@ -441,11 +441,11 @@ async function loadDeployments() {
 $('#form-deploy-git').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.target));
-  $('#deploy-status').textContent = 'Déploiement en cours (clone + build docker)... cela peut prendre une à deux minutes.';
+  $('#deploy-status').textContent = 'Deploying (clone + docker build)... this can take a minute or two.';
   try {
     await api('/api/deploy/git', { method: 'POST', body: JSON.stringify(fd) });
     $('#deploy-status').textContent = '';
-    toast(`Application "${fd.name}" déployée`);
+    toast(`Application "${fd.name}" deployed`);
     e.target.reset();
     loadDeployments();
   } catch (err) {
@@ -457,11 +457,11 @@ $('#form-deploy-git').addEventListener('submit', async (e) => {
 $('#form-deploy-upload').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  $('#deploy-status').textContent = 'Déploiement en cours (décompression + build docker)...';
+  $('#deploy-status').textContent = 'Deploying (unzipping + docker build)...';
   try {
     await api('/api/deploy/upload', { method: 'POST', body: fd });
     $('#deploy-status').textContent = '';
-    toast('Application déployée');
+    toast('Application deployed');
     e.target.reset();
     loadDeployments();
   } catch (err) {
@@ -471,21 +471,21 @@ $('#form-deploy-upload').addEventListener('submit', async (e) => {
 });
 
 async function redeploy(name) {
-  toast(`Redéploiement de ${name} en cours...`);
+  toast(`Redeploying ${name}...`);
   try {
     await api(`/api/deployments/${encodeURIComponent(name)}/redeploy`, { method: 'POST' });
-    toast(`${name} redéployé`);
+    toast(`${name} redeployed`);
   } catch (err) {
     toast(err.message, true);
   }
 }
 
 async function deleteDeployment(name) {
-  if (!confirm(`Supprimer le déploiement "${name}" ? Le conteneur sera arrêté.`)) return;
-  const removeFiles = confirm('Supprimer aussi les fichiers du projet sur le disque ?');
+  if (!confirm(`Delete the deployment "${name}"? The container will be stopped.`)) return;
+  const removeFiles = confirm('Also delete the project files from disk?');
   try {
     await api(`/api/deployments/${encodeURIComponent(name)}?removeFiles=${removeFiles}`, { method: 'DELETE' });
-    toast('Déploiement supprimé');
+    toast('Deployment removed');
     loadDeployments();
   } catch (err) {
     toast(err.message, true);
@@ -493,15 +493,15 @@ async function deleteDeployment(name) {
 }
 
 // ---------------------------------------------------------------------
-// Bases de données
+// Databases
 // ---------------------------------------------------------------------
 async function loadDbConnections() {
   const list = $('#db-connections-list');
-  list.innerHTML = '<li class="muted">Chargement...</li>';
+  list.innerHTML = '<li class="muted">Loading...</li>';
   try {
     const conns = await api('/api/db/connections');
     if (conns.length === 0) {
-      list.innerHTML = '<li class="muted">Aucune connexion enregistrée.</li>';
+      list.innerHTML = '<li class="muted">No connection saved yet.</li>';
       return;
     }
     list.innerHTML = '';
@@ -521,7 +521,7 @@ $('#form-db-connection').addEventListener('submit', async (e) => {
   const fd = Object.fromEntries(new FormData(e.target));
   try {
     await api('/api/db/connections', { method: 'POST', body: JSON.stringify(fd) });
-    toast('Connexion ajoutée');
+    toast('Connection added');
     e.target.reset();
     loadDbConnections();
   } catch (err) {
@@ -535,11 +535,11 @@ async function selectDbConnection(conn) {
   $$('#db-connections-list li').forEach(li => li.classList.remove('active'));
   $('#db-rows-area').classList.add('hidden');
   const tablesList = $('#db-tables-list');
-  tablesList.innerHTML = '<li class="muted">Chargement...</li>';
+  tablesList.innerHTML = '<li class="muted">Loading...</li>';
   try {
     const tables = await api(`/api/db/connections/${conn.id}/tables`);
     if (tables.length === 0) {
-      tablesList.innerHTML = '<li class="muted">Aucune table.</li>';
+      tablesList.innerHTML = '<li class="muted">No table.</li>';
       return;
     }
     tablesList.innerHTML = '';
@@ -558,7 +558,7 @@ async function loadTableRows(connId, table) {
   $('#db-rows-area').classList.remove('hidden');
   $('#db-rows-title').textContent = table;
   const el = $('#db-rows-table');
-  el.innerHTML = '<tr><td class="muted">Chargement...</td></tr>';
+  el.innerHTML = '<tr><td class="muted">Loading...</td></tr>';
   try {
     const result = await api(`/api/db/connections/${connId}/tables/${encodeURIComponent(table)}/rows?limit=100`);
     renderResultTable(el, result);
@@ -569,7 +569,7 @@ async function loadTableRows(connId, table) {
 
 function renderResultTable(el, result) {
   if (!result.columns || result.rows.length === 0) {
-    el.innerHTML = '<tr><td class="muted">Aucune donnée.</td></tr>';
+    el.innerHTML = '<tr><td class="muted">No data.</td></tr>';
     return;
   }
   const thead = `<thead><tr>${result.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
@@ -580,27 +580,27 @@ function renderResultTable(el, result) {
 }
 
 $('#btn-run-query').addEventListener('click', async () => {
-  if (!activeDbConnectionId) { toast('Sélectionnez une connexion d\'abord', true); return; }
+  if (!activeDbConnectionId) { toast('Select a connection first', true); return; }
   const sql = $('#db-query-input').value.trim();
   if (!sql) return;
   const resultEl = $('#db-query-result');
-  resultEl.textContent = 'Exécution...';
+  resultEl.textContent = 'Running...';
   try {
     const result = await api(`/api/db/connections/${activeDbConnectionId}/query`, {
       method: 'POST', body: JSON.stringify({ sql }),
     });
     resultEl.textContent = JSON.stringify(result, null, 2);
   } catch (err) {
-    resultEl.textContent = 'Erreur : ' + err.message;
+    resultEl.textContent = 'Error: ' + err.message;
   }
 });
 
 // ---------------------------------------------------------------------
-// Utilisateurs
+// Users
 // ---------------------------------------------------------------------
 async function loadUsers() {
   const tbody = $('#users-table tbody');
-  tbody.innerHTML = '<tr><td colspan="4" class="muted">Chargement...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
   try {
     const users = await api('/api/users');
     tbody.innerHTML = '';
@@ -613,7 +613,7 @@ async function loadUsers() {
         <td></td>`;
       const actions = tr.querySelector('td:last-child');
       if (u.id !== currentUser.id) {
-        actions.append(actionBtn('Supprimer', () => deleteUser(u.id), true));
+        actions.append(actionBtn('Delete', () => deleteUser(u.id), true));
       }
       tbody.appendChild(tr);
     });
@@ -627,7 +627,7 @@ $('#form-add-user').addEventListener('submit', async (e) => {
   const fd = Object.fromEntries(new FormData(e.target));
   try {
     await api('/api/users', { method: 'POST', body: JSON.stringify(fd) });
-    toast('Compte créé');
+    toast('Account created');
     e.target.reset();
     loadUsers();
   } catch (err) {
@@ -636,10 +636,10 @@ $('#form-add-user').addEventListener('submit', async (e) => {
 });
 
 async function deleteUser(id) {
-  if (!confirm('Supprimer ce compte ?')) return;
+  if (!confirm('Delete this account?')) return;
   try {
     await api(`/api/users/${id}`, { method: 'DELETE' });
-    toast('Compte supprimé');
+    toast('Account deleted');
     loadUsers();
   } catch (err) {
     toast(err.message, true);
@@ -647,7 +647,7 @@ async function deleteUser(id) {
 }
 
 // ---------------------------------------------------------------------
-// Utilitaires
+// Utilities
 // ---------------------------------------------------------------------
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, m => ({
@@ -656,9 +656,9 @@ function escapeHtml(str) {
 }
 
 function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' o';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' Ko';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' Mo';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 boot();

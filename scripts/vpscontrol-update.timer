@@ -1,5 +1,5 @@
 [Unit]
-Description=Vérifie et applique les mises à jour VPS Control tous les jours
+Description=Checks for and applies VPS Control updates every day
 
 [Timer]
 OnCalendar=daily

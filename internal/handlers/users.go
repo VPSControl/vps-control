@@ -33,15 +33,15 @@ type createUserRequest struct {
 func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if !usernameRe.MatchString(req.Username) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom d'utilisateur invalide (3-32 caractères alphanumériques)")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid username (3-32 alphanumeric characters)")
 		return
 	}
 	if len(req.Password) < 8 {
-		middleware.JSONError(w, http.StatusBadRequest, "le mot de passe doit faire au moins 8 caractères")
+		middleware.JSONError(w, http.StatusBadRequest, "password must be at least 8 characters long")
 		return
 	}
 	if req.Role != "admin" && req.Role != "viewer" {
@@ -49,7 +49,7 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, salt, err := auth.HashPassword(req.Password)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "erreur interne")
+		middleware.JSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	u := store.User{
@@ -70,12 +70,12 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/users/")
 	if id == "" {
-		middleware.JSONError(w, http.StatusBadRequest, "id manquant")
+		middleware.JSONError(w, http.StatusBadRequest, "missing id")
 		return
 	}
 	current, _ := middleware.UserFromContext(r.Context())
 	if current.ID == id {
-		middleware.JSONError(w, http.StatusBadRequest, "vous ne pouvez pas supprimer votre propre compte")
+		middleware.JSONError(w, http.StatusBadRequest, "you cannot delete your own account")
 		return
 	}
 	if err := h.Store.DeleteUser(id); err != nil {

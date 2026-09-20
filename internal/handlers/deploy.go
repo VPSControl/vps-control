@@ -20,14 +20,14 @@ import (
 
 type DeployHandlers struct {
 	Store      *store.Store
-	DeployRoot string // dossier racine où sont clonées/extraites les apps, ex: /opt/vpscontrol/apps
+	DeployRoot string // root folder apps get cloned/extracted into, e.g. /opt/vpscontrol/apps
 }
 
 var appNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
 
-// Dockerfile générés automatiquement quand le dépôt n'en fournit pas déjà un.
-// Volontairement simples : un conteneur unique par app pour rester léger et
-// facile à comprendre/adapter sur un VPS à 2 Go de RAM.
+// Dockerfiles generated automatically when the repo doesn't already ship one.
+// Deliberately simple: a single container per app, to stay lightweight and
+// easy to understand/tweak on a 2GB VPS.
 const dockerfileLaravel = `FROM richarvey/nginx-php-fpm:3.1.6
 COPY . /var/www/html
 ENV WEBROOT /var/www/html/public
@@ -83,7 +83,7 @@ func detectStack(dir string) string {
 func writeDockerfileIfMissing(dir, stack, port string) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
-		return nil // le dépôt fournit déjà son propre Dockerfile, on le respecte
+		return nil // the repo already ships its own Dockerfile, respect it
 	}
 	var content string
 	switch stack {
@@ -102,8 +102,8 @@ func writeDockerfileIfMissing(dir, stack, port string) error {
 type deployGitRequest struct {
 	Name    string `json:"name"`
 	RepoURL string `json:"repoUrl"`
-	Stack   string `json:"stack"` // "auto" ou un stack précis
-	Port    string `json:"port"`  // port exposé sur l'hôte
+	Stack   string `json:"stack"` // "auto" or a specific stack
+	Port    string `json:"port"`  // port exposed on the host
 }
 
 func containerPortForStack(stack string) string {
@@ -122,24 +122,24 @@ func containerPortForStack(stack string) string {
 func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 	var req deployGitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "requête invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 	if !appNameRe.MatchString(req.Name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom invalide (minuscules, chiffres, tirets, 2-40 caractères)")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid name (lowercase letters, digits, dashes, 2-40 characters)")
 		return
 	}
 	if req.RepoURL == "" {
-		middleware.JSONError(w, http.StatusBadRequest, "URL du dépôt manquante")
+		middleware.JSONError(w, http.StatusBadRequest, "missing repository URL")
 		return
 	}
 	if _, err := strconv.Atoi(req.Port); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "port invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid port")
 		return
 	}
 	targetDir := filepath.Join(h.DeployRoot, req.Name)
 	if _, err := os.Stat(targetDir); err == nil {
-		middleware.JSONError(w, http.StatusConflict, "un dossier existe déjà pour ce nom, choisissez un autre nom")
+		middleware.JSONError(w, http.StatusConflict, "a folder already exists for this name, pick another one")
 		return
 	}
 	if err := os.MkdirAll(h.DeployRoot, 0o755); err != nil {
@@ -148,7 +148,7 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := runCommand(2*time.Minute, "git", "clone", "--depth", "1", req.RepoURL, targetDir)
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "échec du clone git: "+out)
+		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+out)
 		return
 	}
 	h.buildAndRun(w, req.Name, targetDir, req.Stack, req.Port, "git", req.RepoURL)
@@ -157,30 +157,30 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "upload trop volumineux ou invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "upload too large or invalid")
 		return
 	}
 	name := r.FormValue("name")
 	stack := r.FormValue("stack")
 	port := r.FormValue("port")
 	if !appNameRe.MatchString(name) {
-		middleware.JSONError(w, http.StatusBadRequest, "nom invalide (minuscules, chiffres, tirets, 2-40 caractères)")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid name (lowercase letters, digits, dashes, 2-40 characters)")
 		return
 	}
 	if _, err := strconv.Atoi(port); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "port invalide")
+		middleware.JSONError(w, http.StatusBadRequest, "invalid port")
 		return
 	}
 	file, header, err := r.FormFile("archive")
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "fichier .zip manquant (champ 'archive')")
+		middleware.JSONError(w, http.StatusBadRequest, "missing .zip file (field 'archive')")
 		return
 	}
 	defer file.Close()
 
 	targetDir := filepath.Join(h.DeployRoot, name)
 	if _, err := os.Stat(targetDir); err == nil {
-		middleware.JSONError(w, http.StatusConflict, "un dossier existe déjà pour ce nom, choisissez un autre nom")
+		middleware.JSONError(w, http.StatusConflict, "a folder already exists for this name, pick another one")
 		return
 	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
@@ -202,7 +202,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(tmpZip)
 
 	if err := unzip(tmpZip, targetDir); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "échec de la décompression: "+err.Error())
+		middleware.JSONError(w, http.StatusBadRequest, "failed to unzip: "+err.Error())
 		return
 	}
 	h.buildAndRun(w, name, targetDir, stack, port, "upload", header.Filename)
@@ -222,7 +222,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, sta
 
 	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, targetDir)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "échec du build docker:\n"+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "docker build failed:\n"+out)
 		return
 	}
 
@@ -236,7 +236,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, sta
 
 	out, err = runCommand(30*time.Second, "docker", runArgs...)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "échec du démarrage du conteneur:\n"+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "failed to start the container:\n"+out)
 		return
 	}
 
@@ -273,7 +273,7 @@ func (h *DeployHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		middleware.JSONError(w, http.StatusNotFound, "déploiement introuvable")
+		middleware.JSONError(w, http.StatusNotFound, "deployment not found")
 		return
 	}
 	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", target.Container)
@@ -299,19 +299,19 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		middleware.JSONError(w, http.StatusNotFound, "déploiement introuvable")
+		middleware.JSONError(w, http.StatusNotFound, "deployment not found")
 		return
 	}
 	if target.SourceType == "git" {
 		if out, err := runCommand(2*time.Minute, "git", "-C", target.Path, "pull"); err != nil {
-			middleware.JSONError(w, http.StatusInternalServerError, "échec du git pull:\n"+out)
+			middleware.JSONError(w, http.StatusInternalServerError, "git pull failed:\n"+out)
 			return
 		}
 	}
 	imageTag := "vpscontrol-" + target.Name
 	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, target.Path)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "échec du build:\n"+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "build failed:\n"+out)
 		return
 	}
 	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", target.Container)
@@ -320,7 +320,7 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 		"-p", target.Port + ":" + containerPort, imageTag}
 	out, err = runCommand(30*time.Second, "docker", runArgs...)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "échec du redémarrage:\n"+out)
+		middleware.JSONError(w, http.StatusInternalServerError, "restart failed:\n"+out)
 		return
 	}
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -345,7 +345,7 @@ func unzip(src, dest string) error {
 			return err
 		}
 		if !strings.HasPrefix(fpathAbs, destAbs+string(os.PathSeparator)) && fpathAbs != destAbs {
-			return errors.New("archive zip invalide (chemin en dehors de la cible)")
+			return errors.New("invalid zip archive (path outside of the target directory)")
 		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(fpathAbs, 0o755); err != nil {
