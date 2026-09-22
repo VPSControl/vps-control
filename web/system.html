@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; color: #22c55e; background: #0a0f1a; border: 1px solid #1f2937; border-radius: 6px; padding: 2px 8px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">System</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8 max-w-5xl">
+    <h1 class="text-xl lg:text-2xl font-bold text-white mb-6">System</h1>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-panel border border-border rounded-xl p-5">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
+          <i class="fas fa-code-branch text-gray-400"></i>Installed version
+        </h2>
+        <p class="text-sm text-gray-400 mb-2">Local commit : <code id="sys-local-commit">—</code></p>
+        <p class="text-sm text-gray-400 mb-4 break-all">Repository : <code id="sys-repo-url">—</code></p>
+        <button id="btn-check-update" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
+          <i class="fas fa-magnifying-glass mr-2"></i>Check for updates
+        </button>
+        <p id="sys-update-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl p-5">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
+          <i class="fas fa-download text-gray-400"></i>Update
+        </h2>
+        <p class="text-sm text-gray-500 mb-4">
+          Auto-update is <span class="text-amber-400 font-semibold">disabled</span> on this instance.
+          To update manually, run on the server:
+        </p>
+        <code class="block mb-3">cd /opt/vpscontrol-src && git pull && go build -o /usr/local/bin/vpscontrol . && systemctl restart vpscontrol</code>
+        <p class="text-xs text-gray-600">You can also configure a GitHub webhook below to trigger updates on push.</p>
+      </div>
+    </div>
+
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
+        <i class="fab fa-github text-gray-400"></i>GitHub webhook
+      </h2>
+      <p class="text-sm text-gray-500 mb-5">
+        Add a webhook on the repo (Settings → Webhooks → Add webhook) so every push to GitHub
+        triggers an update here. Content type: <code>application/json</code> · Events: <em>Just the push event</em>.
+      </p>
+
+      <div class="mb-4">
+        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Payload URL</label>
+        <div class="flex items-center gap-2">
+          <code id="sys-webhook-url" class="flex-1 block truncate">—</code>
+          <button class="btn-copy px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition" data-target="sys-webhook-url" title="Copy">
+            <i class="fas fa-copy"></i>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Secret</label>
+        <div class="flex items-center gap-2">
+          <code id="sys-webhook-secret" class="flex-1 block truncate">—</code>
+          <button class="btn-copy px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition" data-target="sys-webhook-secret" title="Copy">
+            <i class="fas fa-copy"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
+
+<script src="/app.js"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu')?.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); });
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
+(async function() {
+  const me = await requireAuth({ adminOnly: true });
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  buildNav('system', me.role === 'admin');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+  loadSystemInfo();
+})();
+
+async function loadSystemInfo() {
+  try {
+    const info = await api('/api/system/info');
+    document.getElementById('sys-local-commit').textContent = info.commit || '—';
+    document.getElementById('sys-repo-url').textContent = info.repoUrl || '—';
+    document.getElementById('sys-webhook-url').textContent = info.webhookUrl || '—';
+    document.getElementById('sys-webhook-secret').textContent = info.webhookSecret || '—';
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-check-update').addEventListener('click', async () => {
+  const status = document.getElementById('sys-update-status');
+  status.textContent = 'Checking...';
+  try {
+    const res = await api('/api/system/check-update', { method: 'POST' });
+    status.textContent = res.updateAvailable
+      ? `Update available: ${res.localCommit} → ${res.remoteCommit}`
+      : `Already up to date (${res.localCommit}).`;
+  } catch (err) { status.textContent = 'Error: ' + err.message; }
+});
+
+// Copy buttons
+document.querySelectorAll('.btn-copy').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const targetId = btn.dataset.target;
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    try {
+      await navigator.clipboard.writeText(el.textContent.trim());
+      const oldHTML = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-check text-accent"></i>';
+      setTimeout(() => { btn.innerHTML = oldHTML; }, 1500);
+      toast('Copied');
+    } catch (err) { toast('Copy failed: ' + err.message, true); }
+  });
+});
+</script>
+</body>
+</html>

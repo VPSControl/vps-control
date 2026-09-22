@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Tokens — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  input {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12.5px;
+    color: #22c55e;
+    background: #0a0f1a;
+    border: 1px solid #1f2937;
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">API Tokens</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl lg:text-2xl font-bold text-white">API Tokens</h1>
+        <p class="text-sm text-gray-500 mt-1">Use with the header <code>Authorization: Bearer vcp_...</code></p>
+      </div>
+      <button id="btn-create-token" class="px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+        <i class="fas fa-plus mr-2"></i>Create token
+      </button>
+    </div>
+
+    <div class="bg-panel border border-border rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-border">
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Prefix</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Created</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Last used</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden xl:table-cell">Expires</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Status</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="tokens-table">
+            <tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal create -->
+<div id="token-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Create API token</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Name</label>
+    <input id="token-name" placeholder="CI deploy / CLI / Bot...">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Expires in (hours) — 0 = never</label>
+    <input id="token-expires" type="number" value="0" min="0" max="87600">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-token" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">Cancel</button>
+      <button id="btn-confirm-token" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal result -->
+<div id="token-result-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-2">Token created</h3>
+    <div class="flex items-start gap-2 p-3 rounded-lg bg-danger/10 border border-danger/30 mb-4">
+      <i class="fas fa-triangle-exclamation text-danger mt-0.5"></i>
+      <p class="text-xs text-danger">Copy this token now. It will never be shown again.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <code id="token-result-value" class="flex-1 block overflow-x-auto whitespace-nowrap p-3"></code>
+      <button id="btn-token-copy" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition" title="Copy">
+        <i class="fas fa-copy"></i>
+      </button>
+    </div>
+    <div class="flex justify-end mt-6">
+      <button id="btn-token-result-close" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Done</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200]"></div>
+
+<script src="/app.js"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu')?.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); });
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
+(async function() {
+  const me = await requireAuth();
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  buildNav('tokens', me.role === 'admin');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+  loadTokens();
+})();
+
+async function loadTokens() {
+  const tbody = document.getElementById('tokens-table');
+  tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const tokens = await api('/api/tokens') || [];
+    if (tokens.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-500 py-6">No token yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    tokens.forEach(t => {
+      const expired = t.expiresAt && new Date(t.expiresAt) < new Date();
+      const status = t.revoked ? 'Revoked' : (expired ? 'Expired' : 'Active');
+      const statusClass = t.revoked || expired ? 'bg-danger/15 text-danger' : 'bg-accent/15 text-accent';
+      const lastUsed = t.lastUsed && t.lastUsed !== '0001-01-01T00:00:00Z'
+        ? new Date(t.lastUsed).toLocaleString() : '—';
+      const expiresAt = t.expiresAt && t.expiresAt !== '0001-01-01T00:00:00Z'
+        ? new Date(t.expiresAt).toLocaleString() : 'never';
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm text-white">${escapeHtml(t.name)}</td>
+        <td class="px-4 py-3 text-xs hidden sm:table-cell"><code>${escapeHtml(t.prefix)}…</code></td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden lg:table-cell">${new Date(t.createdAt).toLocaleDateString()}</td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">${escapeHtml(lastUsed)}</td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden xl:table-cell">${escapeHtml(expiresAt)}</td>
+        <td class="px-4 py-3"><span class="inline-block px-2 py-1 rounded-md text-xs font-semibold ${statusClass}">${status}</span></td>
+        <td class="px-4 py-3 text-right"></td>`;
+      const actions = tr.querySelector('td:last-child');
+      if (!t.revoked) {
+        const btn = document.createElement('button');
+        btn.className = 'text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition';
+        btn.title = 'Revoke';
+        btn.innerHTML = '<i class="fas fa-ban"></i>';
+        btn.addEventListener('click', () => revokeToken(t.id));
+        actions.appendChild(btn);
+      }
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function revokeToken(id) {
+  if (!confirm('Revoke this token? Any script using it will stop working immediately.')) return;
+  try {
+    await api(`/api/tokens/${id}`, { method: 'DELETE' });
+    toast('Token revoked');
+    loadTokens();
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-create-token').addEventListener('click', () => {
+  document.getElementById('token-modal').classList.remove('hidden');
+  document.getElementById('token-name').value = '';
+  document.getElementById('token-expires').value = '0';
+});
+
+document.getElementById('btn-cancel-token').addEventListener('click', () => {
+  document.getElementById('token-modal').classList.add('hidden');
+});
+
+document.getElementById('btn-confirm-token').addEventListener('click', async () => {
+  const name = document.getElementById('token-name').value.trim();
+  const expires = parseInt(document.getElementById('token-expires').value, 10) || 0;
+  if (!name) { toast('Name is required', true); return; }
+  try {
+    const res = await api('/api/tokens', {
+      method:'POST',
+      body: JSON.stringify({ name, expiresInHours: expires }),
+    });
+    document.getElementById('token-modal').classList.add('hidden');
+    document.getElementById('token-result-value').textContent = res.token;
+    document.getElementById('token-result-modal').classList.remove('hidden');
+    loadTokens();
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-token-copy').addEventListener('click', async () => {
+  const val = document.getElementById('token-result-value').textContent;
+  try {
+    await navigator.clipboard.writeText(val);
+    toast('Copied to clipboard');
+  } catch (err) { toast('Copy failed: ' + err.message, true); }
+});
+
+document.getElementById('btn-token-result-close').addEventListener('click', () => {
+  document.getElementById('token-result-modal').classList.add('hidden');
+});
+</script>
+</body>
+</html>

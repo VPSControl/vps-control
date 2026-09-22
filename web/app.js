@@ -1,27 +1,9 @@
-// VPS Control — vanilla JS frontend, no external dependency (lightweight, no build step).
+// VPS Control — utilitaires partagés par toutes les pages.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-let currentUser = null;
-let filesCurrentPath = '';
-let activeDbConnectionId = null;
-let activeDbConnectionDriver = null;
-
-function showScreen(id) {
-  $$('.screen').forEach(el => el.classList.add('hidden'));
-  $(`#${id}`).classList.remove('hidden');
-}
-
-function toast(message, isError = false) {
-  const el = $('#toast');
-  el.textContent = message;
-  el.classList.toggle('error', isError);
-  el.classList.remove('hidden');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add('hidden'), 4000);
-}
-
+// ---- API ----
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
@@ -31,94 +13,36 @@ async function api(path, options = {}) {
     credentials: 'same-origin',
   });
   let data = null;
-  try { data = await res.json(); } catch (_) { /* empty response */ }
+  try { data = await res.json(); } catch (_) {}
   if (!res.ok) {
     const message = (data && data.error) || `Error ${res.status}`;
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
 
-// ---------------------------------------------------------------------
-// Boot: checks whether the panel needs setup, otherwise shows login
-// ---------------------------------------------------------------------
-async function boot() {
-  try {
-    const status = await api('/api/setup/status');
-    if (status.needsSetup) {
-      showScreen('screen-setup');
-      return;
-    }
-    const me = await api('/api/me').catch(() => null);
-    if (me) {
-      enterApp(me);
-    } else {
-      showScreen('screen-login');
-    }
-  } catch (e) {
-    showScreen('screen-login');
-  }
+// ---- Toast ----
+function toast(message, isError = false) {
+  const el = document.getElementById('toast');
+  if (!el) { console.log(isError ? '❌ ' : 'ℹ️ ', message); return; }
+  el.textContent = message;
+  el.classList.toggle('error', isError);
+  el.classList.toggle('border-danger', isError);
+  el.classList.toggle('border-accent', !isError);
+  el.classList.remove('hidden');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
-function enterApp(user) {
-  currentUser = user;
-  $('#current-user').textContent = `${user.username} (${user.role})`;
-  $('#nav-users').classList.toggle('hidden', user.role !== 'admin');
-  $('#nav-system').classList.toggle('hidden', user.role !== 'admin');
-  showScreen('screen-app');
-  loadDashboard();
+// ---- Utils ----
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[m]));
 }
 
-$('#form-setup').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  $('#setup-error').textContent = '';
-  try {
-    const user = await api('/api/setup', { method: 'POST', body: JSON.stringify(Object.fromEntries(fd)) });
-    enterApp(user);
-  } catch (err) {
-    $('#setup-error').textContent = err.message;
-  }
-});
-
-$('#form-login').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  $('#login-error').textContent = '';
-  try {
-    const user = await api('/api/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(fd)) });
-    enterApp(user);
-  } catch (err) {
-    $('#login-error').textContent = err.message;
-  }
-});
-
-$('#btn-logout').addEventListener('click', async () => {
-  await api('/api/logout', { method: 'POST' }).catch(() => {});
-  location.reload();
-});
-
-// ---------------------------------------------------------------------
-// Tab navigation
-// ---------------------------------------------------------------------
-$$('.nav-item').forEach(btn => {
-  btn.addEventListener('click', () => {
-    $$('.nav-item').forEach(b => b.classList.remove('active'));
-    $$('.tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    $(`#tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'files') loadFiles(filesCurrentPath);
-    if (btn.dataset.tab === 'deploy') loadDeployments();
-    if (btn.dataset.tab === 'databases') loadDbConnections();
-    if (btn.dataset.tab === 'users') loadUsers();
-    if (btn.dataset.tab === 'system') loadSystemInfo();
-    if (btn.dataset.tab === 'dashboard') loadDashboard();
-  });
-});
-
-// ---------------------------------------------------------------------
-// Dashboard
-// ---------------------------------------------------------------------
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -127,552 +51,131 @@ function formatBytes(bytes) {
   return `${n.toFixed(1)} ${units[i]}`;
 }
 
-async function loadDashboard() {
-  try {
-    const s = await api('/api/system/stats');
-    $('#stat-services').textContent = `${s.servicesRunning} / ${s.servicesTotal}`;
-    $('#stat-deployments').textContent = s.deployments;
-    $('#stat-disk').textContent = `${formatBytes(s.diskUsedBytes)} / ${formatBytes(s.diskTotalBytes)}`;
-    $('#stat-mem').textContent = `${formatBytes(s.memUsedBytes)} / ${formatBytes(s.memTotalBytes)}`;
-    $('#stat-disk-bar').style.width = s.diskTotalBytes ? `${Math.min(100, (s.diskUsedBytes / s.diskTotalBytes) * 100)}%` : '0%';
-    $('#stat-mem-bar').style.width = s.memTotalBytes ? `${Math.min(100, (s.memUsedBytes / s.memTotalBytes) * 100)}%` : '0%';
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-$('#btn-refresh-dashboard').addEventListener('click', loadDashboard);
-
-// ---------------------------------------------------------------------
-// System (version, updates)
-// ---------------------------------------------------------------------
-async function loadSystemInfo() {
-  try {
-    const info = await api('/api/system/info');
-    $('#sys-local-commit').textContent = info.commit || '—';
-    $('#sys-repo-url').textContent = info.repoUrl || '—';
-  } catch (err) {
-    toast(err.message, true);
-  }
-  try {
-    const hook = await api('/api/system/webhook');
-    $('#sys-webhook-url').textContent = `${location.origin}${hook.path}`;
-    $('#sys-webhook-secret').textContent = hook.secret;
-  } catch (err) {
-    // Admin-only endpoint; a non-admin viewer simply won't see this card populated.
-  }
-}
-
-function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard'));
-}
-
-$('#btn-copy-webhook-url').addEventListener('click', () => copyToClipboard($('#sys-webhook-url').textContent));
-$('#btn-copy-webhook-secret').addEventListener('click', () => copyToClipboard($('#sys-webhook-secret').textContent));
-
-$('#btn-check-update').addEventListener('click', async () => {
-  const status = $('#sys-update-status');
-  status.textContent = 'Checking...';
-  try {
-    const res = await api('/api/system/check-update', { method: 'POST' });
-    status.textContent = res.updateAvailable
-      ? `Update available: ${res.localCommit} → ${res.remoteCommit}`
-      : `Already up to date (${res.localCommit}).`;
-  } catch (err) {
-    status.textContent = 'Error: ' + err.message;
-  }
-});
-
-$('#btn-run-update').addEventListener('click', async () => {
-  if (!confirm('Run the update now? The panel will restart.')) return;
-  const result = $('#sys-update-result');
-  result.textContent = 'Updating...';
-  try {
-    const res = await api('/api/system/update', { method: 'POST' });
-    result.textContent = res.message;
-  } catch (err) {
-    result.textContent = 'Error: ' + err.message;
-  }
-});
-
-// ---------------------------------------------------------------------
-// Services (Docker)
-// ---------------------------------------------------------------------
-async function loadServices() {
-  const tbody = $('#services-table tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
-  try {
-    const services = await api('/api/services');
-    if (services.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">No Docker service yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = '';
-    services.forEach(s => {
-      const isUp = /up/i.test(s.Status);
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${escapeHtml(s.Names)}</td>
-        <td class="muted">${escapeHtml(s.Image)}</td>
-        <td><span class="status-pill ${isUp ? 'status-up' : 'status-down'}">${escapeHtml(s.Status)}</span></td>
-        <td class="muted">${escapeHtml(s.Ports || '—')}</td>
-        <td></td>`;
-      const actionsCell = tr.querySelector('td:last-child');
-      actionsCell.append(
-        actionBtn('Start', () => serviceAction(s.Names, 'start')),
-        actionBtn('Stop', () => serviceAction(s.Names, 'stop')),
-        actionBtn('Restart', () => serviceAction(s.Names, 'restart')),
-        actionBtn('Logs', () => showLogs(s.Names)),
-        actionBtn('Remove', () => deleteService(s.Names), true),
-      );
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="error">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-function actionBtn(label, onClick, danger = false) {
-  const b = document.createElement('button');
-  b.className = 'action-btn';
-  b.textContent = label;
-  if (danger) b.style.color = 'var(--danger)';
-  b.addEventListener('click', onClick);
-  return b;
-}
-
-async function serviceAction(name, action) {
-  try {
-    await api(`/api/services/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
-    toast(`Service ${name}: ${action} done`);
-    loadServices();
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-async function deleteService(name) {
-  if (!confirm(`Permanently remove the service "${name}"?`)) return;
-  try {
-    await api(`/api/services/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    toast(`Service ${name} removed`);
-    loadServices();
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-async function showLogs(name) {
-  try {
-    const data = await api(`/api/services/${encodeURIComponent(name)}/logs`);
-    alert(`Logs for ${name} (last 300 lines):\n\n${data.logs || '(empty)'}`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-$('#btn-refresh-services').addEventListener('click', loadServices);
-
-$('#form-db-service').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(e.target));
-  try {
-    const res = await api('/api/services/database', { method: 'POST', body: JSON.stringify(fd) });
-    toast(`Database created: container ${res.container}`);
-    e.target.reset();
-    loadServices();
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-// ---------------------------------------------------------------------
-// Files
-// ---------------------------------------------------------------------
-async function loadFiles(path) {
-  filesCurrentPath = path || '';
-  renderBreadcrumb();
-  const tbody = $('#files-table tbody');
-  tbody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
-  try {
-    const entries = await api(`/api/files?path=${encodeURIComponent(filesCurrentPath)}`);
-    if (entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="muted">Empty folder.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = '';
-    entries.forEach(entry => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${entry.isDir ? '📁' : '📄'} ${escapeHtml(entry.name)}</td>
-        <td class="muted">${entry.isDir ? '—' : formatSize(entry.size)}</td>
-        <td class="muted">${escapeHtml(entry.modTime)}</td>
-        <td></td>`;
-      const nameCell = tr.querySelector('td');
-      if (entry.isDir) {
-        nameCell.style.cursor = 'pointer';
-        nameCell.addEventListener('click', () => loadFiles(entry.path));
-      } else {
-        nameCell.style.cursor = 'pointer';
-        nameCell.addEventListener('click', () => openFileEditor(entry.path, entry.name));
-      }
-      const actions = tr.querySelector('td:last-child');
-      if (!entry.isDir) {
-        actions.append(actionBtn('Download', () => {
-          window.location = `/api/files/download?path=${encodeURIComponent(entry.path)}`;
-        }));
-      }
-      actions.append(actionBtn('Delete', () => deleteFile(entry.path), true));
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="error">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-function renderBreadcrumb() {
-  const container = $('#files-breadcrumb');
-  const parts = filesCurrentPath.split('/').filter(Boolean);
-  container.innerHTML = '';
-  const root = document.createElement('span');
-  root.textContent = '/ root';
-  root.addEventListener('click', () => loadFiles(''));
-  container.appendChild(root);
-  let acc = '';
-  parts.forEach(p => {
-    acc += '/' + p;
-    const sep = document.createTextNode(' / ');
-    container.appendChild(sep);
-    const span = document.createElement('span');
-    span.textContent = p;
-    const target = acc;
-    span.addEventListener('click', () => loadFiles(target));
-    container.appendChild(span);
-  });
-}
-
-async function deleteFile(path) {
-  if (!confirm(`Delete "${path}"?`)) return;
-  try {
-    await api(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
-    toast('Deleted');
-    loadFiles(filesCurrentPath);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-let editingFilePath = null;
-async function openFileEditor(path, name) {
-  try {
-    const data = await api(`/api/files/content?path=${encodeURIComponent(path)}`);
-    editingFilePath = path;
-    $('#file-editor-name').textContent = name;
-    $('#file-editor-content').value = data.content;
-    $('#file-editor').classList.remove('hidden');
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-$('#btn-close-editor').addEventListener('click', () => {
-  $('#file-editor').classList.add('hidden');
-  editingFilePath = null;
-});
-
-$('#btn-save-file').addEventListener('click', async () => {
-  if (!editingFilePath) return;
-  try {
-    await api(`/api/files/content?path=${encodeURIComponent(editingFilePath)}`, {
-      method: 'PUT',
-      body: $('#file-editor-content').value,
-      headers: { 'Content-Type': 'text/plain' },
-    });
-    toast('File saved');
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-$('#btn-new-folder').addEventListener('click', async () => {
-  const name = prompt('New folder name:');
-  if (!name) return;
-  const path = (filesCurrentPath ? filesCurrentPath + '/' : '') + name;
-  try {
-    await api(`/api/files/mkdir?path=${encodeURIComponent(path)}`, { method: 'POST' });
-    loadFiles(filesCurrentPath);
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-$('#form-upload').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  try {
-    await api(`/api/files/upload?path=${encodeURIComponent(filesCurrentPath)}`, { method: 'POST', body: fd });
-    toast('Upload complete');
-    e.target.reset();
-    loadFiles(filesCurrentPath);
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-// ---------------------------------------------------------------------
-// Deployment
-// ---------------------------------------------------------------------
-async function loadDeployments() {
-  const tbody = $('#deployments-table tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
-  try {
-    const deployments = await api('/api/deployments');
-    if (deployments.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">No application deployed yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = '';
-    deployments.forEach(d => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${escapeHtml(d.name)}</td>
-        <td class="muted">${escapeHtml(d.stack)}</td>
-        <td><a href="http://${location.hostname}:${d.port}" target="_blank" class="muted">${escapeHtml(d.port)}</a></td>
-        <td class="muted">${escapeHtml(d.sourceType)}</td>
-        <td></td>`;
-      const actions = tr.querySelector('td:last-child');
-      actions.append(
-        actionBtn('Redeploy', () => redeploy(d.name)),
-        actionBtn('Delete', () => deleteDeployment(d.name), true),
-      );
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="error">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-$('#form-deploy-git').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(e.target));
-  $('#deploy-status').textContent = 'Deploying (clone + docker build)... this can take a minute or two.';
-  try {
-    await api('/api/deploy/git', { method: 'POST', body: JSON.stringify(fd) });
-    $('#deploy-status').textContent = '';
-    toast(`Application "${fd.name}" deployed`);
-    e.target.reset();
-    loadDeployments();
-  } catch (err) {
-    $('#deploy-status').textContent = '';
-    toast(err.message, true);
-  }
-});
-
-$('#form-deploy-upload').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  $('#deploy-status').textContent = 'Deploying (unzipping + docker build)...';
-  try {
-    await api('/api/deploy/upload', { method: 'POST', body: fd });
-    $('#deploy-status').textContent = '';
-    toast('Application deployed');
-    e.target.reset();
-    loadDeployments();
-  } catch (err) {
-    $('#deploy-status').textContent = '';
-    toast(err.message, true);
-  }
-});
-
-async function redeploy(name) {
-  toast(`Redeploying ${name}...`);
-  try {
-    await api(`/api/deployments/${encodeURIComponent(name)}/redeploy`, { method: 'POST' });
-    toast(`${name} redeployed`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-async function deleteDeployment(name) {
-  if (!confirm(`Delete the deployment "${name}"? The container will be stopped.`)) return;
-  const removeFiles = confirm('Also delete the project files from disk?');
-  try {
-    await api(`/api/deployments/${encodeURIComponent(name)}?removeFiles=${removeFiles}`, { method: 'DELETE' });
-    toast('Deployment removed');
-    loadDeployments();
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-// ---------------------------------------------------------------------
-// Databases
-// ---------------------------------------------------------------------
-async function loadDbConnections() {
-  const list = $('#db-connections-list');
-  list.innerHTML = '<li class="muted">Loading...</li>';
-  try {
-    const conns = await api('/api/db/connections');
-    if (conns.length === 0) {
-      list.innerHTML = '<li class="muted">No connection saved yet.</li>';
-      return;
-    }
-    list.innerHTML = '';
-    conns.forEach(c => {
-      const li = document.createElement('li');
-      li.textContent = `${c.name} (${c.driver})`;
-      li.addEventListener('click', () => selectDbConnection(c));
-      list.appendChild(li);
-    });
-  } catch (err) {
-    list.innerHTML = `<li class="error">${escapeHtml(err.message)}</li>`;
-  }
-}
-
-$('#form-db-connection').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(e.target));
-  try {
-    await api('/api/db/connections', { method: 'POST', body: JSON.stringify(fd) });
-    toast('Connection added');
-    e.target.reset();
-    loadDbConnections();
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-async function selectDbConnection(conn) {
-  activeDbConnectionId = conn.id;
-  activeDbConnectionDriver = conn.driver;
-  $$('#db-connections-list li').forEach(li => li.classList.remove('active'));
-  $('#db-rows-area').classList.add('hidden');
-  const tablesList = $('#db-tables-list');
-  tablesList.innerHTML = '<li class="muted">Loading...</li>';
-  try {
-    const tables = await api(`/api/db/connections/${conn.id}/tables`);
-    if (tables.length === 0) {
-      tablesList.innerHTML = '<li class="muted">No table.</li>';
-      return;
-    }
-    tablesList.innerHTML = '';
-    tables.forEach(t => {
-      const li = document.createElement('li');
-      li.textContent = t;
-      li.addEventListener('click', () => loadTableRows(conn.id, t));
-      tablesList.appendChild(li);
-    });
-  } catch (err) {
-    tablesList.innerHTML = `<li class="error">${escapeHtml(err.message)}</li>`;
-  }
-}
-
-async function loadTableRows(connId, table) {
-  $('#db-rows-area').classList.remove('hidden');
-  $('#db-rows-title').textContent = table;
-  const el = $('#db-rows-table');
-  el.innerHTML = '<tr><td class="muted">Loading...</td></tr>';
-  try {
-    const result = await api(`/api/db/connections/${connId}/tables/${encodeURIComponent(table)}/rows?limit=100`);
-    renderResultTable(el, result);
-  } catch (err) {
-    el.innerHTML = `<tr><td class="error">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-function renderResultTable(el, result) {
-  if (!result.columns || result.rows.length === 0) {
-    el.innerHTML = '<tr><td class="muted">No data.</td></tr>';
-    return;
-  }
-  const thead = `<thead><tr>${result.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>`;
-  const tbody = `<tbody>${result.rows.map(row =>
-    `<tr>${result.columns.map(c => `<td>${escapeHtml(String(row[c] ?? ''))}</td>`).join('')}</tr>`
-  ).join('')}</tbody>`;
-  el.innerHTML = thead + tbody;
-}
-
-$('#btn-run-query').addEventListener('click', async () => {
-  if (!activeDbConnectionId) { toast('Select a connection first', true); return; }
-  const sql = $('#db-query-input').value.trim();
-  if (!sql) return;
-  const resultEl = $('#db-query-result');
-  resultEl.textContent = 'Running...';
-  try {
-    const result = await api(`/api/db/connections/${activeDbConnectionId}/query`, {
-      method: 'POST', body: JSON.stringify({ sql }),
-    });
-    resultEl.textContent = JSON.stringify(result, null, 2);
-  } catch (err) {
-    resultEl.textContent = 'Error: ' + err.message;
-  }
-});
-
-// ---------------------------------------------------------------------
-// Users
-// ---------------------------------------------------------------------
-async function loadUsers() {
-  const tbody = $('#users-table tbody');
-  tbody.innerHTML = '<tr><td colspan="4" class="muted">Loading...</td></tr>';
-  try {
-    const users = await api('/api/users');
-    tbody.innerHTML = '';
-    users.forEach(u => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${escapeHtml(u.username)}</td>
-        <td class="muted">${escapeHtml(u.role)}</td>
-        <td class="muted">${new Date(u.createdAt).toLocaleDateString()}</td>
-        <td></td>`;
-      const actions = tr.querySelector('td:last-child');
-      if (u.id !== currentUser.id) {
-        actions.append(actionBtn('Delete', () => deleteUser(u.id), true));
-      }
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="error">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-$('#form-add-user').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(e.target));
-  try {
-    await api('/api/users', { method: 'POST', body: JSON.stringify(fd) });
-    toast('Account created');
-    e.target.reset();
-    loadUsers();
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
-
-async function deleteUser(id) {
-  if (!confirm('Delete this account?')) return;
-  try {
-    await api(`/api/users/${id}`, { method: 'DELETE' });
-    toast('Account deleted');
-    loadUsers();
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-// ---------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------
-function escapeHtml(str) {
-  return String(str ?? '').replace(/[&<>"']/g, m => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[m]));
-}
-
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-boot();
+function actionBtn(label, onClick, danger = false) {
+  const b = document.createElement('button');
+  b.className = 'text-xs px-2.5 py-1.5 rounded-md bg-panel2 border transition mr-1 ' +
+    (danger ? 'border-border text-gray-300 hover:border-danger hover:text-danger' : 'border-border text-gray-300 hover:border-accent hover:text-accent');
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function stackLabel(stack, dep) {
+  const base = {
+    laravel: 'Laravel / PHP', node: 'Node.js', react: 'React SPA', next: 'Next.js',
+    astro: 'Astro', sveltekit: 'SvelteKit', nuxt: 'Nuxt', python: 'Python', static: 'Static',
+  }[stack] || stack || 'Auto';
+  let ver = '—';
+  if (['node', 'react', 'next', 'astro', 'sveltekit', 'nuxt'].includes(stack) && dep?.nodeVersion) {
+    ver = `Node ${dep.nodeVersion}`;
+  } else if (stack === 'python' && dep?.pythonVersion) {
+    ver = `Python ${dep.pythonVersion}`;
+  } else if (stack === 'laravel' && dep?.phpVersion) {
+    ver = `PHP ${dep.phpVersion}`;
+  }
+  return { base, ver };
+}
+
+// ---- Auth guard ----
+async function requireAuth(opts = {}) {
+  try {
+    const me = await api('/api/me');
+    window.currentUser = me;
+    if (opts.adminOnly && me.role !== 'admin') {
+      location.href = '/dashboard.html';
+      return null;
+    }
+    return me;
+  } catch (err) {
+    if (err.status === 401) {
+      location.href = '/index.html';
+      return null;
+    }
+    throw err;
+  }
+}
+
+// ---- Sidebar builder (partagé) ----
+function buildSidebarNav(activePage, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  return items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === activePage ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}">
+      <i class="fas ${i.icon} w-4"></i><span>${i.label}</span>
+    </a>`
+  ).join('');
+}
+
+function renderSidebar(activePage) {
+  const container = document.getElementById('nav-container');
+  if (!container || !window.currentUser) return;
+  container.innerHTML = buildSidebarNav(activePage, window.currentUser.role === 'admin');
+}
+
+// ---- Mobile sidebar helpers ----
+function initMobileSidebar(opts = {}) {
+  const sidebar = document.getElementById(opts.sidebarId || 'sidebar');
+  const overlay = document.getElementById(opts.overlayId || 'sidebar-overlay');
+  const menuBtn = document.getElementById(opts.menuBtnId || 'btn-menu');
+  const closeBtn = document.getElementById(opts.closeBtnId || 'btn-close-sidebar');
+
+  function open() {
+    if (sidebar) { sidebar.classList.remove('hidden'); sidebar.classList.remove('-translate-x-full'); }
+    if (overlay) overlay.classList.remove('hidden');
+  }
+  function close() {
+    if (sidebar) sidebar.classList.add('-translate-x-full');
+    if (overlay) overlay.classList.add('hidden');
+  }
+
+  menuBtn?.addEventListener('click', open);
+  closeBtn?.addEventListener('click', close);
+  overlay?.addEventListener('click', close);
+}
+
+// ---- Open a file in Monaco editor ----
+// Usage : openInEditor(appId, path, line, col, errorMsg)
+function openInEditor(appId, path, line = 0, col = 0, errorMsg = '') {
+  const params = new URLSearchParams({ id: appId, path });
+  if (line > 0) params.set('line', line);
+  if (col > 0) params.set('col', col);
+  if (errorMsg) params.set('error', errorMsg.slice(0, 300));
+  location.href = `/edit.html?${params.toString()}`;
+}
+
+// Copier les boutons .copy-btn génériques (data-target)
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.copy-btn');
+  if (!btn) return;
+  let text = '';
+  if (btn.dataset.target) {
+    const el = document.getElementById(btn.dataset.target);
+    text = el ? el.textContent.trim() : '';
+  } else {
+    const code = btn.previousElementSibling;
+    text = code ? code.textContent.trim() : '';
+  }
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied to clipboard');
+  } catch (err) {
+    toast('Copy failed: ' + err.message, true);
+  }
+});

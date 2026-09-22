@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edit — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937',
+      accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444',
+      amber: { light: 'rgba(245,158,11,.15)', DEFAULT: '#f59e0b', dark: '#b45309' }
+    },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<!-- Monaco Editor from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; height: 100%; margin: 0; }
+  #monaco-container { height: calc(100vh - 160px); min-height: 300px; }
+  @media (max-width: 768px) {
+    #monaco-container { height: calc(100vh - 220px); }
+  }
+  .error-line-highlight { background: rgba(239,68,68,.15); }
+  .error-gutter { background: #ef4444 !important; width: 4px !important; margin-left: 4px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #0a0f1a; }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #374151; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- Top bar -->
+<header class="bg-panel border-b border-border px-3 lg:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+  <div class="flex items-center gap-3 min-w-0 flex-1">
+    <a href="#" id="btn-back" class="text-gray-400 hover:text-accent transition flex-shrink-0" title="Back">
+      <i class="fas fa-arrow-left text-lg"></i>
+    </a>
+    <div class="min-w-0 flex-1">
+      <h1 class="text-sm font-bold text-white truncate" id="file-name">—</h1>
+      <p class="text-[11px] text-gray-500 truncate" id="file-path">—</p>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2 flex-wrap">
+    <span id="file-status" class="text-xs text-gray-500 hidden sm:inline"></span>
+
+    <button id="btn-save" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Save (Ctrl+S)">
+      <i class="fas fa-floppy-disk mr-1"></i><span class="hidden sm:inline">Save</span>
+    </button>
+    <button id="btn-save-restart" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition" title="Save & Restart container">
+      <i class="fas fa-rotate mr-1"></i><span class="hidden sm:inline">Save & Restart</span>
+    </button>
+    <button id="btn-save-redeploy" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Save & Rebuild container">
+      <i class="fas fa-arrows-rotate mr-1"></i><span class="hidden md:inline">Save & Redeploy</span>
+    </button>
+  </div>
+</header>
+
+<!-- Toolbar -->
+<div class="bg-panel2 border-b border-border px-3 lg:px-6 py-2 flex items-center justify-between gap-3 text-xs flex-wrap">
+  <div class="flex items-center gap-3">
+    <span class="text-gray-500" id="cursor-position">Ln 1, Col 1</span>
+    <span class="text-gray-600 hidden sm:inline">|</span>
+    <span class="text-gray-500 hidden sm:inline" id="file-language">plaintext</span>
+    <span class="text-gray-600 hidden md:inline">|</span>
+    <span class="text-gray-500 hidden md:inline" id="file-size">—</span>
+  </div>
+  <div class="flex items-center gap-3">
+    <button id="btn-goto-line" class="text-gray-400 hover:text-accent transition" title="Go to line">
+      <i class="fas fa-arrow-right-to-bracket mr-1"></i><span class="hidden sm:inline">Go to line</span>
+    </button>
+    <button id="btn-format" class="text-gray-400 hover:text-accent transition" title="Format document (Shift+Alt+F)">
+      <i class="fas fa-align-left mr-1"></i><span class="hidden sm:inline">Format</span>
+    </button>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="error-banner" class="hidden bg-danger/10 border-b border-danger/30 px-3 lg:px-6 py-2 text-xs text-danger flex items-center gap-2 flex-wrap">
+  <i class="fas fa-triangle-exclamation"></i>
+  <span id="error-message" class="flex-1 min-w-0 truncate">—</span>
+  <button id="btn-goto-error" class="text-danger underline hover:no-underline whitespace-nowrap">
+    <i class="fas fa-crosshairs mr-1"></i>Jump to error
+  </button>
+</div>
+
+<!-- Monaco -->
+<div id="monaco-container"></div>
+
+<!-- Loading overlay -->
+<div id="loading" class="fixed inset-0 bg-bg/80 backdrop-blur z-50 flex items-center justify-center">
+  <div class="flex flex-col items-center gap-3">
+    <div class="w-10 h-10 rounded-full border-2 border-border border-t-accent animate-spin"></div>
+    <p class="text-xs text-gray-500">Loading editor...</p>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200] max-w-[90vw]"></div>
+
+<script src="/app.js"></script>
+<script>
+// ============ PARAMS ============
+const params = new URLSearchParams(location.search);
+const appId = params.get('id') || 'global';
+const filePath = params.get('path') || '';
+const lineParam = parseInt(params.get('line') || '0', 10);
+const colParam = parseInt(params.get('col') || '0', 10);
+const errorMsg = params.get('error') || '';
+const isGlobal = appId === 'global';
+
+if (!filePath) {
+  document.body.innerHTML = '<div class="p-10 text-center text-danger">Missing param: path</div>';
+  throw new Error('missing path');
+}
+
+// ============ STATE ============
+let editor = null;
+let originalContent = '';
+let currentLanguage = 'plaintext';
+let currentAppData = null;
+let errorDecorations = [];
+
+// ============ LANGUAGE DETECTION ============
+function detectLanguage(path) {
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const map = {
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+    ts: 'typescript', tsx: 'typescript',
+    py: 'python', pyw: 'python',
+    php: 'php', go: 'go', rb: 'ruby', rs: 'rust',
+    java: 'java', kt: 'kotlin', swift: 'swift',
+    c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',
+    cs: 'csharp', fs: 'fsharp',
+    json: 'json', jsonc: 'json',
+    yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', conf: 'ini', env: 'ini',
+    html: 'html', htm: 'html', xml: 'xml', svg: 'xml',
+    css: 'css', scss: 'scss', sass: 'scss', less: 'less',
+    md: 'markdown', markdown: 'markdown',
+    sh: 'shell', bash: 'shell', zsh: 'shell',
+    sql: 'sql',
+    vue: 'html', svelte: 'html',
+    dockerfile: 'dockerfile',
+    graphql: 'graphql', gql: 'graphql',
+    lua: 'lua', pl: 'perl', r: 'r',
+  };
+  if (path.toLowerCase().endsWith('dockerfile')) return 'dockerfile';
+  if (path.toLowerCase().endsWith('.gitignore')) return 'plaintext';
+  return map[ext] || 'plaintext';
+}
+
+// ============ MONACO LOADER ============
+require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+
+require(['vs/editor/editor.main'], function() {
+  monaco.editor.defineTheme('vpscontrol-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#0a0f1a',
+      'editor.lineHighlightBackground': '#111827',
+      'editorGutter.background': '#0a0f1a',
+      'editorLineNumber.foreground': '#374151',
+      'editorLineNumber.activeForeground': '#22c55e',
+      'editor.selectionBackground': '#1e3a5f80',
+      'editorCursor.foreground': '#22c55e',
+    },
+  });
+  initEditor();
+});
+
+function initEditor() {
+  const container = document.getElementById('monaco-container');
+  const lang = detectLanguage(filePath);
+  currentLanguage = lang;
+  document.getElementById('file-language').textContent = lang;
+
+  editor = monaco.editor.create(container, {
+    value: '',
+    language: lang,
+    theme: 'vpscontrol-dark',
+    automaticLayout: true,
+    fontSize: 13,
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+    minimap: { enabled: window.innerWidth > 900 },
+    scrollBeyondLastLine: false,
+    renderWhitespace: 'selection',
+    tabSize: 2,
+    wordWrap: 'off',
+    lineNumbers: 'on',
+    folding: true,
+    bracketPairColorization: { enabled: true },
+    smoothScrolling: true,
+    cursorBlinking: 'smooth',
+    cursorSmoothCaretAnimation: 'on',
+    formatOnPaste: true,
+    formatOnType: true,
+  });
+
+  editor.onDidChangeCursorPosition((e) => {
+    document.getElementById('cursor-position').textContent =
+      `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+  });
+
+  editor.onDidChangeModelContent(() => {
+    const changed = editor.getValue() !== originalContent;
+    const statusEl = document.getElementById('file-status');
+    statusEl.textContent = changed ? '● unsaved' : '● saved';
+    statusEl.className = changed ? 'text-xs text-amber' : 'text-xs text-accent';
+    statusEl.classList.remove('hidden');
+  });
+
+  // Cmd/Ctrl+S
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    saveFile(false);
+  });
+
+  // Shift+Alt+F : format
+  editor.addCommand(
+    monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF,
+    () => {
+      editor.getAction('editor.action.formatDocument')?.run();
+    }
+  );
+
+  loadFile();
+}
+
+// ============ LOAD FILE ============
+async function loadFile() {
+  try {
+    document.getElementById('file-name').textContent = filePath.split('/').pop();
+    document.getElementById('file-path').textContent = filePath;
+
+    // Back button : retour à la page précédente
+    const backBtn = document.getElementById('btn-back');
+    if (isGlobal) {
+      backBtn.href = '/files.html';
+    } else {
+      backBtn.href = `/server.html?id=${appId}&tab=files`;
+    }
+
+    // Hide Save & Restart / Save & Redeploy in global mode
+    if (isGlobal) {
+      document.getElementById('btn-save-restart')?.classList.add('hidden');
+      document.getElementById('btn-save-redeploy')?.classList.add('hidden');
+    } else {
+      // Load app info for container name
+      try {
+        const res = await api(`/api/deployments/${appId}`);
+        currentAppData = res.deployment;
+      } catch (_) {}
+    }
+
+    // Load file content
+    const url = isGlobal
+      ? `/api/files/content?path=${encodeURIComponent(filePath)}`
+      : `/api/deployments/${appId}/files/content?path=${encodeURIComponent(filePath)}`;
+
+    const data = await api(url);
+    originalContent = data.content;
+    editor.setValue(data.content);
+    document.getElementById('file-size').textContent = formatSize(data.content.length);
+
+    // Update status
+    const statusEl = document.getElementById('file-status');
+    statusEl.textContent = '● saved';
+    statusEl.className = 'text-xs text-accent';
+    statusEl.classList.remove('hidden');
+
+    // Hide loading overlay
+    document.getElementById('loading').classList.add('hidden');
+
+    // Highlight error line if provided
+    if (lineParam > 0) {
+      setTimeout(() => {
+        highlightErrorLine(lineParam, colParam || 1);
+      }, 300);
+    }
+
+    // Show error banner
+    if (errorMsg) {
+      document.getElementById('error-banner').classList.remove('hidden');
+      document.getElementById('error-message').textContent = errorMsg;
+    }
+  } catch (err) {
+    document.getElementById('loading').innerHTML =
+      `<div class="text-center text-danger p-6">
+        <i class="fas fa-triangle-exclamation text-3xl mb-3"></i>
+        <p class="text-sm">Failed to load file</p>
+        <p class="text-xs mt-2">${escapeHtml(err.message)}</p>
+      </div>`;
+    toast(err.message, true);
+  }
+}
+
+// ============ ERROR LINE ============
+function highlightErrorLine(line, col = 1) {
+  editor.revealLineInCenter(line);
+  editor.setPosition({ lineNumber: line, column: col });
+  editor.focus();
+
+  // Remove previous decorations
+  if (errorDecorations.length > 0) {
+    editor.deltaDecorations(errorDecorations, []);
+    errorDecorations = [];
+  }
+
+  // Add new decoration
+  errorDecorations = editor.deltaDecorations([], [
+    {
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        className: 'error-line-highlight',
+        glyphMarginClassName: 'error-gutter',
+      },
+    },
+  ]);
+}
+
+document.getElementById('btn-goto-error')?.addEventListener('click', () => {
+  if (lineParam > 0) highlightErrorLine(lineParam, colParam || 1);
+});
+
+// ============ GO TO LINE ============
+document.getElementById('btn-goto-line')?.addEventListener('click', () => {
+  const ln = prompt('Go to line:', '1');
+  const n = parseInt(ln, 10);
+  if (n > 0) {
+    editor.revealLineInCenter(n);
+    editor.setPosition({ lineNumber: n, column: 1 });
+    editor.focus();
+  }
+});
+
+// ============ FORMAT ============
+document.getElementById('btn-format')?.addEventListener('click', () => {
+  editor.getAction('editor.action.formatDocument')?.run();
+});
+
+// ============ SAVE ============
+async function saveFile(silent = true) {
+  if (!editor) return;
+  const content = editor.getValue();
+  const saveBtn = document.getElementById('btn-save');
+  saveBtn.disabled = true;
+
+  try {
+    const url = isGlobal
+      ? `/api/files/content?path=${encodeURIComponent(filePath)}`
+      : `/api/deployments/${appId}/files/content?path=${encodeURIComponent(filePath)}`;
+
+    await api(url, {
+      method: 'PUT',
+      body: content,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+
+    originalContent = content;
+    const statusEl = document.getElementById('file-status');
+    statusEl.textContent = '● saved';
+    statusEl.className = 'text-xs text-accent';
+
+    if (!silent) toast('File saved');
+    return true;
+  } catch (err) {
+    toast(err.message, true);
+    return false;
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+document.getElementById('btn-save').addEventListener('click', () => saveFile(false));
+
+document.getElementById('btn-save-restart').addEventListener('click', async () => {
+  const ok = await saveFile();
+  if (!ok) return;
+  if (!currentAppData) {
+    toast('Cannot restart: app info unavailable', true);
+    return;
+  }
+  try {
+    await api(`/api/services/${encodeURIComponent(currentAppData.container)}/restart`, { method: 'POST' });
+    toast('File saved and container restarted');
+  } catch (err) {
+    toast('File saved, but restart failed: ' + err.message, true);
+  }
+});
+
+document.getElementById('btn-save-redeploy').addEventListener('click', async () => {
+  const ok = await saveFile();
+  if (!ok) return;
+  if (!confirm('Rebuild the Docker image and restart the container?')) return;
+  try {
+    await api(`/api/deployments/${appId}/redeploy`, { method: 'POST' });
+    toast('Rebuilt and restarted');
+  } catch (err) {
+    toast('File saved, but redeploy failed: ' + err.message, true);
+  }
+});
+
+// ============ INIT AUTH ============
+(async function() {
+  const me = await requireAuth();
+  if (!me) return;
+})();
+
+// ============ WARN ON LEAVE ============
+window.addEventListener('beforeunload', (e) => {
+  if (!editor) return;
+  const changed = editor.getValue() !== originalContent;
+  if (changed) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// ============ KEYBOARD SHORTCUTS ============
+document.addEventListener('keydown', (e) => {
+  // Ctrl+Shift+S : Save & Restart
+  if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+    e.preventDefault();
+    document.getElementById('btn-save-restart')?.click();
+  }
+});
+</script>
+</body>
+</html>

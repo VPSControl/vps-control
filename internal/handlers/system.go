@@ -1,12 +1,8 @@
 package handlers
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"crypto/subtle"
+	"crypto/rand"
 	"encoding/hex"
-	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,34 +13,67 @@ import (
 	"vpscontrol/internal/store"
 )
 
-// SystemHandlers groups the panel's self-administration endpoints: version
-// info, manual update trigger, the GitHub webhook receiver for instant
-// updates, and stats for the dashboard.
+// SystemHandlers groups the panel's self-administration endpoints.
 type SystemHandlers struct {
-	Store         *store.Store
-	SrcDir        string // folder the source code is cloned into (for git rev-parse / updates)
-	RepoURL       string // upstream git repo, used to compare against the latest remote version
-	WebhookSecret []byte // shared secret used to verify GitHub's webhook signature
+	Store   *store.Store
+	SrcDir  string
+	RepoURL string
 }
 
+// generateWebhookSecret : 32 bytes aléatoires en hex (64 chars).
+func generateWebhookSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// Info renvoie la version locale, l'URL du repo et les infos webhook
+// (URL de callback + secret), pour pré-remplir le tab System.
 func (h *SystemHandlers) Info(w http.ResponseWriter, r *http.Request) {
 	commit, _ := runCommand(5*time.Second, "git", "-C", h.SrcDir, "rev-parse", "--short", "HEAD")
+
+	// Secret : s'il n'existe pas encore, on en génère un à la volée.
+	secret, err := h.Store.EnsureWebhookSecret(generateWebhookSecret)
+	if err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// URL de callback : on reconstruit depuis la requête pour fonctionner
+	// aussi bien derrière Nginx, derrière un domaine, ou via IP:port.
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	host := r.Host
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		host = fwd
+	}
+	webhookURL := scheme + "://" + host + "/api/webhook/github"
+
 	middleware.JSON(w, http.StatusOK, map[string]string{
-		"commit":  strings.TrimSpace(commit),
-		"srcDir":  h.SrcDir,
-		"repoUrl": h.RepoURL,
+		"commit":        strings.TrimSpace(commit),
+		"srcDir":        h.SrcDir,
+		"repoUrl":       h.RepoURL,
+		"webhookUrl":    webhookURL,
+		"webhookSecret": secret,
 	})
 }
 
-// WebhookInfo returns what's needed to wire up the GitHub webhook by hand
-// (Settings → Webhooks → Add webhook on the repo): the URL to call and the
-// shared secret GitHub will sign its payloads with. Admin-only, since the
-// secret is sensitive.
-func (h *SystemHandlers) WebhookInfo(w http.ResponseWriter, r *http.Request) {
-	middleware.JSON(w, http.StatusOK, map[string]string{
-		"path":   "/api/webhook/update",
-		"secret": hex.EncodeToString(h.WebhookSecret),
-	})
+// RegenerateWebhookSecret : permet de changer le secret depuis le panel.
+func (h *SystemHandlers) RegenerateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	secret, err := generateWebhookSecret()
+	if err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := h.Store.SetWebhookSecret(secret); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]string{"webhookSecret": secret})
 }
 
 func (h *SystemHandlers) CheckUpdate(w http.ResponseWriter, r *http.Request) {
@@ -74,76 +103,25 @@ func (h *SystemHandlers) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Update triggers a manual update from the panel's System tab.
+// Update schedules the update (git pull + rebuild + service restart) via
+// systemd-run, detached from the current process.
 func (h *SystemHandlers) Update(w http.ResponseWriter, r *http.Request) {
-	message, err := h.triggerUpdate("manual-update")
-	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	middleware.JSON(w, http.StatusOK, map[string]string{"message": message})
-}
-
-// Webhook is what GitHub calls on every push, so an update lands on the
-// running service right away instead of waiting for the next daily check.
-// Configure it on the repo (Settings → Webhooks) with:
-//   Payload URL:  https://<your-panel-domain>/api/webhook/update
-//   Content type: application/json
-//   Secret:       shown in the panel's System tab (or GET /api/system/webhook, admin-only)
-//   Events:       "Just the push event"
-func (h *SystemHandlers) Webhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
-	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "could not read the request body")
-		return
-	}
-	if !validWebhookSignature(h.WebhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
-		middleware.JSONError(w, http.StatusUnauthorized, "invalid webhook signature")
-		return
-	}
-	message, err := h.triggerUpdate("webhook")
-	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	middleware.JSON(w, http.StatusAccepted, map[string]string{"message": message})
-}
-
-// validWebhookSignature checks GitHub's "X-Hub-Signature-256: sha256=<hex>" header.
-func validWebhookSignature(secret, body []byte, header string) bool {
-	if len(secret) == 0 || header == "" {
-		return false
-	}
-	const prefix = "sha256="
-	if !strings.HasPrefix(header, prefix) {
-		return false
-	}
-	got, err := hex.DecodeString(strings.TrimPrefix(header, prefix))
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, secret)
-	mac.Write(body)
-	want := mac.Sum(nil)
-	return subtle.ConstantTimeCompare(got, want) == 1
-}
-
-// triggerUpdate schedules the update (git pull + rebuild + service restart)
-// via systemd-run, detached from the current process: since this process is
-// the one about to be restarted, it can't wait around for its own update to finish.
-func (h *SystemHandlers) triggerUpdate(reason string) (string, error) {
 	updateScript := h.SrcDir + "/scripts/update.sh"
 	if _, err := os.Stat(updateScript); err != nil {
-		return "", fmt.Errorf("update script not found (%s). Was the panel installed via git?", updateScript)
+		middleware.JSONError(w, http.StatusNotFound, "update script not found ("+updateScript+"). Was the panel installed via git?")
+		return
 	}
 	shellCmd := "sleep 2 && bash " + updateScript + " >> /var/log/vpscontrol-update.log 2>&1"
-	unit := "vpscontrol-" + reason + "-" + strconv.FormatInt(time.Now().Unix(), 10)
-	out, err := runCommand(10*time.Second, "systemd-run", "--no-block", "--unit="+unit,
+	out, err := runCommand(10*time.Second, "systemd-run", "--no-block",
+		"--unit=vpscontrol-manual-update-"+strconv.FormatInt(time.Now().Unix(), 10),
 		"/bin/bash", "-c", shellCmd)
 	if err != nil {
-		return "", fmt.Errorf("could not start the update: %s", out)
+		middleware.JSONError(w, http.StatusInternalServerError, "could not start the update: "+out)
+		return
 	}
-	return "Update started. The panel will restart in a few seconds.", nil
+	middleware.JSON(w, http.StatusOK, map[string]string{
+		"message": "Update started. The panel will restart in a few seconds.",
+	})
 }
 
 // Stats feeds the dashboard cards.

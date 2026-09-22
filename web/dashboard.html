@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        bg: '#0a0f1a',
+        panel: '#111827',
+        panel2: '#1a2332',
+        border: '#1f2937',
+        accent: '#22c55e',
+        accentDark: '#16a34a',
+        danger: '#ef4444',
+      },
+      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+    }
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a0f1a; }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #374151; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Mobile top bar -->
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2">
+    <i class="fas fa-bars text-xl"></i>
+  </button>
+  <span class="text-sm font-semibold text-gray-300">VPS Control</span>
+  <div class="w-8"></div>
+</header>
+
+<!-- Overlay mobile -->
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent">
+          <i class="fas fa-server"></i>
+        </div>
+        <div>
+          <div class="text-sm font-bold text-white">VPS Control</div>
+          <div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div>
+        </div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1">
+      <a href="/dashboard.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-accent/10 text-accent">
+        <i class="fas fa-gauge-high w-4"></i><span>Dashboard</span>
+      </a>
+      <a href="/servers.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition">
+        <i class="fas fa-server w-4"></i><span>Servers</span>
+      </a>
+      <a href="/deploy.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-deploy">
+        <i class="fas fa-rocket w-4"></i><span>Deploy</span>
+      </a>
+      <a href="/files.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-files">
+        <i class="fas fa-folder w-4"></i><span>Files</span>
+      </a>
+      <a href="/services.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-services">
+        <i class="fas fa-cube w-4"></i><span>Services</span>
+      </a>
+      <a href="/databases.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-databases">
+        <i class="fas fa-database w-4"></i><span>Databases</span>
+      </a>
+      <a href="/users.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-users">
+        <i class="fas fa-users w-4"></i><span>Users</span>
+      </a>
+      <a href="/activity.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-activity">
+        <i class="fas fa-clock-rotate-left w-4"></i><span>Activity</span>
+      </a>
+      <a href="/tokens.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition">
+        <i class="fas fa-key w-4"></i><span>API Tokens</span>
+      </a>
+      <a href="/system.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-system">
+        <i class="fas fa-gear w-4"></i><span>System</span>
+      </a>
+    </nav>
+
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium">
+          <i class="fas fa-right-from-bracket"></i>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 min-w-0 p-4 lg:p-8">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <h1 class="text-xl lg:text-2xl font-bold text-white">Dashboard</h1>
+      <button id="btn-refresh" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
+        <i class="fas fa-rotate mr-2"></i>Refresh
+      </button>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-panel border border-border rounded-xl p-4">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center">
+            <i class="fas fa-cube"></i>
+          </div>
+          <span class="text-xs text-gray-500 uppercase tracking-wider font-medium">Services</span>
+        </div>
+        <div class="text-2xl font-bold text-white" id="stat-services">—</div>
+        <div class="text-xs text-gray-500 mt-1">running / total</div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl p-4">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <i class="fas fa-rocket"></i>
+          </div>
+          <span class="text-xs text-gray-500 uppercase tracking-wider font-medium">Apps</span>
+        </div>
+        <div class="text-2xl font-bold text-white" id="stat-deployments">—</div>
+        <div class="text-xs text-gray-500 mt-1">deployed</div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl p-4">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+            <i class="fas fa-hard-drive"></i>
+          </div>
+          <span class="text-xs text-gray-500 uppercase tracking-wider font-medium">Disk</span>
+        </div>
+        <div class="text-lg font-bold text-white" id="stat-disk">—</div>
+        <div class="h-1.5 bg-panel2 rounded-full mt-2 overflow-hidden">
+          <div id="stat-disk-bar" class="h-full bg-accent rounded-full transition-all" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl p-4">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i class="fas fa-microchip"></i>
+          </div>
+          <span class="text-xs text-gray-500 uppercase tracking-wider font-medium">Memory</span>
+        </div>
+        <div class="text-lg font-bold text-white" id="stat-mem">—</div>
+        <div class="h-1.5 bg-panel2 rounded-full mt-2 overflow-hidden">
+          <div id="stat-mem-bar" class="h-full bg-accent rounded-full transition-all" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent apps -->
+    <div class="bg-panel border border-border rounded-xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-border">
+        <h2 class="font-semibold text-white flex items-center gap-2">
+          <i class="fas fa-clock text-gray-500"></i>Recent apps
+        </h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-border">
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-5 py-3">Name</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-5 py-3">Stack</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-5 py-3">Port</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-5 py-3">Role</th>
+              <th class="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="recent-apps">
+            <tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
+
+<script src="/app.js"></script>
+<script>
+// Mobile sidebar
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+const openBtn = document.getElementById('btn-menu');
+const closeBtn = document.getElementById('btn-close-sidebar');
+
+function openSidebar() {
+  sidebar.classList.remove('-translate-x-full');
+  overlay.classList.remove('hidden');
+}
+function closeSidebar() {
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+}
+openBtn?.addEventListener('click', openSidebar);
+closeBtn?.addEventListener('click', closeSidebar);
+overlay?.addEventListener('click', closeSidebar);
+
+(async function() {
+  const me = await requireAuth();
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  const isAdmin = me.role === 'admin';
+  ['nav-deploy','nav-files','nav-services','nav-databases','nav-users','nav-activity','nav-system'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !isAdmin) el.classList.add('hidden');
+  });
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+  loadStats();
+  loadRecentApps();
+  document.getElementById('btn-refresh').addEventListener('click', () => { loadStats(); loadRecentApps(); });
+})();
+
+async function loadStats() {
+  try {
+    const [stats, deployments] = await Promise.all([
+      api('/api/system/stats'),
+      api('/api/deployments'),
+    ]);
+    document.getElementById('stat-services').textContent = `${stats.servicesRunning} / ${stats.servicesTotal}`;
+    document.getElementById('stat-deployments').textContent = deployments.length;
+    document.getElementById('stat-disk').textContent = `${formatBytes(stats.diskUsedBytes)} / ${formatBytes(stats.diskTotalBytes)}`;
+    document.getElementById('stat-mem').textContent = `${formatBytes(stats.memUsedBytes)} / ${formatBytes(stats.memTotalBytes)}`;
+    document.getElementById('stat-disk-bar').style.width = stats.diskTotalBytes ? `${Math.min(100,(stats.diskUsedBytes/stats.diskTotalBytes)*100)}%` : '0%';
+    document.getElementById('stat-mem-bar').style.width = stats.memTotalBytes ? `${Math.min(100,(stats.memUsedBytes/stats.memTotalBytes)*100)}%` : '0%';
+  } catch (err) { toast(err.message, true); }
+}
+
+async function loadRecentApps() {
+  const tbody = document.getElementById('recent-apps');
+  try {
+    const deps = await api('/api/deployments');
+    if (deps.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">No app yet. <a href="/deploy.html" class="text-accent hover:underline">Deploy one</a>.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    deps.slice(0,5).forEach(d => {
+      const role = d.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-5 py-3 text-sm text-white">${escapeHtml(d.name)}</td>
+        <td class="px-5 py-3 text-sm text-gray-400">${escapeHtml(stackLabel(d.stack,d).base)}</td>
+        <td class="px-5 py-3 text-sm text-gray-400"><a href="http://${location.hostname}:${d.port}" target="_blank" class="text-accent hover:underline">${d.port}</a></td>
+        <td class="px-5 py-3 text-sm text-gray-400">${role}</td>
+        <td class="px-5 py-3 text-right"><button class="text-xs px-3 py-1 rounded border border-border text-gray-300 hover:border-accent hover:text-accent transition" onclick="location.href='/server.html?id=${d.id}'"><i class="fas fa-arrow-right"></i></button></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+</script>
+</body>
+</html>

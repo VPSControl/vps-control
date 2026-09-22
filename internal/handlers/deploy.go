@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/zip"
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,59 +21,221 @@ import (
 
 type DeployHandlers struct {
 	Store      *store.Store
-	DeployRoot string // root folder apps get cloned/extracted into, e.g. /opt/vpscontrol/apps
+	DeployRoot string
 }
 
 var appNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
 
-// Dockerfiles generated automatically when the repo doesn't already ship one.
-// Deliberately simple: a single container per app, to stay lightweight and
-// easy to understand/tweak on a 2GB VPS.
-const dockerfileLaravel = `FROM richarvey/nginx-php-fpm:3.1.6
-COPY . /var/www/html
-ENV WEBROOT /var/www/html/public
-ENV PHP_ERRORS_STDERR 1
-ENV RUN_SCRIPTS 1
-ENV REAL_IP_HEADER 1
-ENV COMPOSER_ALLOW_SUPERUSER 1
-RUN chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache || true
-CMD ["/start.sh"]
-`
+var allowedNodeVersions = map[string]bool{"18": true, "20": true, "22": true}
+var allowedPythonVersions = map[string]bool{"3.10": true, "3.11": true, "3.12": true}
+var allowedPHPVersions = map[string]bool{"8.1": true, "8.2": true, "8.3": true}
 
-const dockerfileNode = `FROM node:20-alpine
+func normalizeNodeVersion(v string) string {
+	if allowedNodeVersions[v] {
+		return v
+	}
+	return "20"
+}
+func normalizePythonVersion(v string) string {
+	if allowedPythonVersions[v] {
+		return v
+	}
+	return "3.12"
+}
+func normalizePHPVersion(v string) string {
+	if allowedPHPVersions[v] {
+		return v
+	}
+	return "8.3"
+}
+
+// ---- Dockerfiles ----
+
+func dockerfileLaravelPHP(phpVersion string) string {
+	return fmt.Sprintf(`FROM php:%s-apache
+RUN apt-get update && apt-get install -y \
+    git unzip libzip-dev libpng-dev libonig-dev libxml2-dev \
+ && docker-php-ext-install pdo pdo_mysql mbstring zip bcmath gd \
+ && a2enmod rewrite \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+WORKDIR /var/www/html
+COPY . .
+RUN composer install --no-dev --optimize-autoloader || true
+RUN chown -R www-data:www-data /var/www/html \
+ && chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+RUN sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
+ && sed -ri 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+EXPOSE 80
+`, phpVersion)
+}
+
+func dockerfileNode(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev || npm install --production
 COPY . .
+ENV NODE_ENV=production
 ENV PORT=%s
 EXPOSE %s
 CMD ["npm", "start"]
-`
+`, nodeVersion, port, port)
+}
 
-const dockerfilePython = `FROM python:3.12-slim
+func dockerfilePython(pythonVersion, port string) string {
+	return fmt.Sprintf(`FROM python:%s-slim
 WORKDIR /app
 COPY requirements.txt* ./
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 COPY . .
 ENV PORT=%s
+ENV PYTHONUNBUFFERED=1
 EXPOSE %s
 CMD ["python", "app.py"]
-`
+`, pythonVersion, port, port)
+}
 
-const dockerfileStatic = `FROM nginx:alpine
+func dockerfileStatic() string {
+	return `FROM nginx:alpine
 COPY . /usr/share/nginx/html
+EXPOSE 80
 `
+}
+
+func dockerfileReact(nodeVersion, buildDir string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/%s /usr/share/nginx/html
+RUN printf 'server {\n\
+  listen 80;\n\
+  root /usr/share/nginx/html;\n\
+  index index.html;\n\
+  location / {\n\
+    try_files $uri $uri/ /index.html;\n\
+  }\n}\n' > /etc/nginx/conf.d/default.conf
+EXPOSE 80
+`, nodeVersion, buildDir)
+}
+
+func dockerfileNext(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+CMD ["npm", "start"]
+`, nodeVersion, port, port)
+}
+
+func dockerfileAstro(nodeVersion string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+RUN printf 'server {\n\
+  listen 80;\n\
+  root /usr/share/nginx/html;\n\
+  index index.html;\n\
+  location / {\n\
+    try_files $uri $uri/ /index.html;\n\
+  }\n}\n' > /etc/nginx/conf.d/default.conf
+EXPOSE 80
+`, nodeVersion)
+}
+
+func dockerfileSvelteKit(nodeVersion string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+RUN printf 'server {\n\
+  listen 80;\n\
+  root /usr/share/nginx/html;\n\
+  index index.html;\n\
+  location / {\n\
+    try_files $uri $uri/ /index.html;\n\
+  }\n}\n' > /etc/nginx/conf.d/default.conf
+EXPOSE 80
+`, nodeVersion)
+}
+
+func dockerfileNuxt(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+CMD ["node", ".output/server/index.mjs"]
+`, nodeVersion, port, port)
+}
+
+// ---- Détection de stack ----
 
 func detectStack(dir string) string {
 	has := func(name string) bool {
 		_, err := os.Stat(filepath.Join(dir, name))
 		return err == nil
 	}
+	if has("package.json") {
+		for _, cfg := range []string{"next.config.js", "next.config.mjs", "next.config.ts"} {
+			if has(cfg) {
+				if nextIsStaticExport(dir) {
+					return "static"
+				}
+				return "next"
+			}
+		}
+		if has("nuxt.config.js") || has("nuxt.config.ts") || has("nuxt.config.mjs") {
+			return "nuxt"
+		}
+		if has("svelte.config.js") {
+			if svelteKitIsStatic(dir) {
+				return "sveltekit"
+			}
+			return "node"
+		}
+		if has("astro.config.mjs") || has("astro.config.js") || has("astro.config.ts") {
+			return "astro"
+		}
+		for _, cfg := range []string{"vite.config.js", "vite.config.ts", "vite.config.mjs"} {
+			if has(cfg) {
+				return "react"
+			}
+		}
+		if isReactProject(dir) {
+			return "react"
+		}
+		return "node"
+	}
 	switch {
 	case has("composer.json"):
 		return "laravel"
-	case has("package.json"):
-		return "node"
 	case has("requirements.txt") || has("app.py") || has("manage.py"):
 		return "python"
 	default:
@@ -80,38 +243,117 @@ func detectStack(dir string) string {
 	}
 }
 
-func writeDockerfileIfMissing(dir, stack, port string) error {
-	dockerfilePath := filepath.Join(dir, "Dockerfile")
-	if _, err := os.Stat(dockerfilePath); err == nil {
-		return nil // the repo already ships its own Dockerfile, respect it
+func isReactProject(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return false
 	}
-	var content string
-	switch stack {
-	case "laravel":
-		content = dockerfileLaravel
-	case "node":
-		content = fmt.Sprintf(dockerfileNode, port, port)
-	case "python":
-		content = fmt.Sprintf(dockerfilePython, port, port)
-	default:
-		content = dockerfileStatic
+	var pkg struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
 	}
-	return os.WriteFile(dockerfilePath, []byte(content), 0o644)
+	if err := json.Unmarshal(b, &pkg); err != nil {
+		return false
+	}
+	hasDep := func(name string) bool {
+		_, ok1 := pkg.Dependencies[name]
+		_, ok2 := pkg.DevDependencies[name]
+		return ok1 || ok2
+	}
+	if hasDep("express") || hasDep("fastify") || hasDep("koa") || hasDep("hapi") {
+		return false
+	}
+	return hasDep("react") || hasDep("react-dom")
 }
 
-type deployGitRequest struct {
-	Name    string `json:"name"`
-	RepoURL string `json:"repoUrl"`
-	Stack   string `json:"stack"` // "auto" or a specific stack
-	Port    string `json:"port"`  // port exposed on the host
+func nextIsStaticExport(dir string) bool {
+	for _, name := range []string{"next.config.js", "next.config.mjs", "next.config.ts"} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		s := string(b)
+		if strings.Contains(s, "output: 'export'") || strings.Contains(s, `output: "export"`) {
+			return true
+		}
+	}
+	return false
+}
+
+func svelteKitIsStatic(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "svelte.config.js"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(b), "@sveltejs/adapter-static")
+}
+
+func reactBuildDir(dir string) string {
+	has := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, name))
+		return err == nil
+	}
+	if has("vite.config.js") || has("vite.config.ts") || has("vite.config.mjs") {
+		return "dist"
+	}
+	if has("src/index.js") || has("src/index.tsx") {
+		return "build"
+	}
+	return "dist"
+}
+
+// ---- Build options ----
+
+type buildOptions struct {
+	Stack         string
+	NodeVersion   string
+	PythonVersion string
+	PHPVersion    string
+	HostPort      string
+	InternalPort  string
+}
+
+func writeDockerfileIfMissing(dir string, opts buildOptions) error {
+	dockerfilePath := filepath.Join(dir, "Dockerfile")
+	if _, err := os.Stat(dockerfilePath); err == nil {
+		return nil
+	}
+	internal := opts.InternalPort
+	if internal == "" {
+		internal = opts.HostPort
+	}
+	var content string
+	switch opts.Stack {
+	case "laravel":
+		content = dockerfileLaravelPHP(opts.PHPVersion)
+	case "node":
+		content = dockerfileNode(opts.NodeVersion, internal)
+	case "react":
+		content = dockerfileReact(opts.NodeVersion, reactBuildDir(dir))
+	case "next":
+		content = dockerfileNext(opts.NodeVersion, internal)
+	case "astro":
+		content = dockerfileAstro(opts.NodeVersion)
+	case "sveltekit":
+		content = dockerfileSvelteKit(opts.NodeVersion)
+	case "nuxt":
+		content = dockerfileNuxt(opts.NodeVersion, internal)
+	case "python":
+		content = dockerfilePython(opts.PythonVersion, internal)
+	default:
+		content = dockerfileStatic()
+	}
+	return os.WriteFile(dockerfilePath, []byte(content), 0o644)
 }
 
 func containerPortForStack(stack string) string {
 	switch stack {
 	case "laravel":
 		return "80"
-	case "node":
+	case "node", "next", "nuxt":
 		return "3000"
+	case "react", "astro", "sveltekit":
+		return "80"
 	case "python":
 		return "5000"
 	default:
@@ -119,7 +361,65 @@ func containerPortForStack(stack string) string {
 	}
 }
 
+// ---- SuggestPort ----
+
+func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
+	stack := r.URL.Query().Get("stack")
+	repoURL := r.URL.Query().Get("repoUrl")
+
+	internal := ""
+	source := ""
+	if repoURL != "" {
+		tmpDir, err := os.MkdirTemp("", "vpscontrol-portdetect-*")
+		if err == nil {
+			defer os.RemoveAll(tmpDir)
+			if _, err := runCommand(30*time.Second, "git", "clone", "--depth", "1", repoURL, tmpDir); err == nil {
+				if stack == "" || stack == "auto" {
+					stack = detectStack(tmpDir)
+				}
+				det := detectPort(tmpDir, stack)
+				internal = det.Port
+				source = det.Source
+			}
+		}
+	}
+	if internal == "" {
+		if stack == "" || stack == "auto" {
+			stack = "static"
+		}
+		det := detectPort("", stack)
+		internal = det.Port
+		source = det.Source
+	}
+	hostPort, auto, err := suggestHostPort("", 8080)
+	if err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"stack":        stack,
+		"internalPort": internal,
+		"hostPort":     hostPort,
+		"autoAssigned": auto,
+		"source":       source,
+	})
+}
+
+// ---- DeployGit (build + start direct) ----
+
+type deployGitRequest struct {
+	Name          string `json:"name"`
+	RepoURL       string `json:"repoUrl"`
+	Stack         string `json:"stack"`
+	Port          string `json:"port"`
+	NodeVersion   string `json:"nodeVersion"`
+	PythonVersion string `json:"pythonVersion"`
+	PHPVersion    string `json:"phpVersion"`
+}
+
 func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
+	user, _ := middleware.UserFromContext(r.Context())
+
 	var req deployGitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
@@ -133,9 +433,17 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "missing repository URL")
 		return
 	}
-	if _, err := strconv.Atoi(req.Port); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "invalid port")
-		return
+	autoPort := req.Port == "" || req.Port == "auto"
+	if !autoPort {
+		if _, err := strconv.Atoi(req.Port); err != nil {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid port")
+			return
+		}
+		if !portIsFree(req.Port) {
+			middleware.JSONError(w, http.StatusConflict,
+				fmt.Sprintf("port %s is already in use on this VPS, pick another one", req.Port))
+			return
+		}
 	}
 	targetDir := filepath.Join(h.DeployRoot, req.Name)
 	if _, err := os.Stat(targetDir); err == nil {
@@ -151,25 +459,52 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+out)
 		return
 	}
-	h.buildAndRun(w, req.Name, targetDir, req.Stack, req.Port, "git", req.RepoURL)
+	if autoPort {
+		p, err := findFreePort(8080, 8200)
+		if err != nil {
+			middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		req.Port = p
+	}
+	opts := buildOptions{
+		Stack:         req.Stack,
+		NodeVersion:   normalizeNodeVersion(req.NodeVersion),
+		PythonVersion: normalizePythonVersion(req.PythonVersion),
+		PHPVersion:    normalizePHPVersion(req.PHPVersion),
+		HostPort:      req.Port,
+	}
+	h.buildAndRun(w, req.Name, targetDir, opts, "git", req.RepoURL, user.ID)
 }
 
+// ---- DeployUpload → DRAFT (extrait seulement, ne build pas) ----
+
 func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
+	user, _ := middleware.UserFromContext(r.Context())
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		middleware.JSONError(w, http.StatusBadRequest, "upload too large or invalid")
 		return
 	}
 	name := r.FormValue("name")
-	stack := r.FormValue("stack")
 	port := r.FormValue("port")
+
 	if !appNameRe.MatchString(name) {
 		middleware.JSONError(w, http.StatusBadRequest, "invalid name (lowercase letters, digits, dashes, 2-40 characters)")
 		return
 	}
-	if _, err := strconv.Atoi(port); err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "invalid port")
-		return
+	autoPort := port == "" || port == "auto"
+	if !autoPort {
+		if _, err := strconv.Atoi(port); err != nil {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid port")
+			return
+		}
+		if !portIsFree(port) {
+			middleware.JSONError(w, http.StatusConflict,
+				fmt.Sprintf("port %s is already in use on this VPS, pick another one", port))
+			return
+		}
 	}
 	file, header, err := r.FormFile("archive")
 	if err != nil {
@@ -205,52 +540,200 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "failed to unzip: "+err.Error())
 		return
 	}
-	h.buildAndRun(w, name, targetDir, stack, port, "upload", header.Filename)
+	if autoPort {
+		p, err := findFreePort(8080, 8200)
+		if err != nil {
+			middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		port = p
+	}
+
+	// Créer un Deployment en mode draft : PAS de build, PAS de start
+	dep := store.Deployment{
+		ID:          randomID(),
+		Name:        name,
+		Stack:       "auto",
+		SourceType:  "upload",
+		SourceRef:   header.Filename,
+		Path:        targetDir,
+		Port:        port,
+		Container:   "vpscontrol-" + name,
+		OwnerID:     user.ID,
+		Status:      "draft",
+		Allocations: []store.Allocation{
+			{ID: randomID(), Port: port, Primary: true, CreatedAt: time.Now()},
+		},
+		CreatedAt: time.Now(),
+	}
+	if err := h.Store.AddDeployment(dep); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_ = h.Store.AddActivity(store.ActivityEntry{
+		ID:        randomID(),
+		Timestamp: time.Now(),
+		ActorID:   user.ID,
+		ActorName: user.Username,
+		Action:    "deploy.draft",
+		Target:    name,
+		Details:   map[string]interface{}{"source": "zip", "file": header.Filename},
+	})
+
+	middleware.JSON(w, http.StatusCreated, dep)
 }
 
-func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, stack, port, sourceType, sourceRef string) {
+// ---- DeployDraft : build + start un draft existant ----
+
+func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
+	user, _ := middleware.UserFromContext(r.Context())
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	// Détection auto du stack
+	stack := detectStack(dep.Path)
+	dep.Stack = stack
+
+	// Port interne
+	internalPort := detectPort(dep.Path, stack).Port
+	if internalPort == "" {
+		internalPort = containerPortForStack(stack)
+	}
+
+	// Dockerfile
+	opts := buildOptions{
+		Stack:         stack,
+		NodeVersion:   normalizeNodeVersion(dep.NodeVersion),
+		PythonVersion: normalizePythonVersion(dep.PythonVersion),
+		PHPVersion:    normalizePHPVersion(dep.PHPVersion),
+		HostPort:      dep.Port,
+		InternalPort:  internalPort,
+	}
+	dockerfilePath := filepath.Join(dep.Path, "Dockerfile")
+	_ = os.Remove(dockerfilePath)
+	if err := writeDockerfileIfMissing(dep.Path, opts); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, "failed to write Dockerfile: "+err.Error())
+		return
+	}
+
+	// Marquer "deploying"
+	dep.Status = "deploying"
+	dep.LastError = ""
+	_ = h.Store.UpdateDeployment(dep)
+
+	// Build
+	imageTag := "vpscontrol-" + dep.Name
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
+	if err != nil {
+		dep.Status = "error"
+		dep.LastError = truncateError("docker build failed:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
+		return
+	}
+
+	// Stop un éventuel ancien conteneur
+	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
+
+	// Start
+	runArgs := buildRunArgs(dep, internalPort)
+	out, err = runCommand(30*time.Second, "docker", runArgs...)
+	if err != nil {
+		dep.Status = "error"
+		dep.LastError = truncateError("failed to start container:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
+		return
+	}
+
+	dep.Status = "running"
+	_ = h.Store.UpdateDeployment(dep)
+
+	_ = h.Store.AddActivity(store.ActivityEntry{
+		ID:        randomID(),
+		Timestamp: time.Now(),
+		ActorID:   user.ID,
+		ActorName: user.Username,
+		Action:    "deploy.start",
+		Target:    dep.Name,
+		Details:   map[string]interface{}{"stack": stack, "port": dep.Port},
+	})
+
+	middleware.JSON(w, http.StatusOK, dep)
+}
+
+// ---- buildAndRun (utilisé par DeployGit uniquement) ----
+
+func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
+	stack := opts.Stack
 	if stack == "" || stack == "auto" {
 		stack = detectStack(targetDir)
 	}
-	containerPort := containerPortForStack(stack)
-	if err := writeDockerfileIfMissing(targetDir, stack, containerPort); err != nil {
+	opts.Stack = stack
+
+	det := detectPort(targetDir, stack)
+	if opts.InternalPort == "" {
+		opts.InternalPort = det.Port
+	}
+	if opts.InternalPort == "" {
+		opts.InternalPort = containerPortForStack(stack)
+	}
+
+	if err := writeDockerfileIfMissing(targetDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	imageTag := "vpscontrol-" + name
 	containerName := "vpscontrol-" + name
 
+	dep := store.Deployment{
+		ID:            randomID(),
+		Name:          name,
+		Stack:         stack,
+		SourceType:    sourceType,
+		SourceRef:     sourceRef,
+		Path:          targetDir,
+		Port:          opts.HostPort,
+		Container:     containerName,
+		NodeVersion:   opts.NodeVersion,
+		PythonVersion: opts.PythonVersion,
+		PHPVersion:    opts.PHPVersion,
+		OwnerID:       ownerID,
+		Status:        "deploying",
+		Allocations: []store.Allocation{
+			{ID: randomID(), Port: opts.HostPort, Primary: true, CreatedAt: time.Now()},
+		},
+		CreatedAt: time.Now(),
+	}
+
 	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, targetDir)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "docker build failed:\n"+out)
+		dep.Status = "error"
+		dep.LastError = truncateError("docker build failed:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.AddDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
 		return
 	}
 
-	envFile := filepath.Join(targetDir, ".env")
-	runArgs := []string{"run", "-d", "--name", containerName, "--restart", "unless-stopped",
-		"-p", port + ":" + containerPort}
-	if _, err := os.Stat(envFile); err == nil {
-		runArgs = append(runArgs, "--env-file", envFile)
-	}
-	runArgs = append(runArgs, imageTag)
-
+	runArgs := buildRunArgs(dep, opts.InternalPort)
 	out, err = runCommand(30*time.Second, "docker", runArgs...)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "failed to start the container:\n"+out)
+		dep.Status = "error"
+		dep.LastError = truncateError("failed to start container:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.AddDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
 		return
 	}
 
-	dep := store.Deployment{
-		ID:         randomID(),
-		Name:       name,
-		Stack:      stack,
-		SourceType: sourceType,
-		SourceRef:  sourceRef,
-		Path:       targetDir,
-		Port:       port,
-		Container:  containerName,
-		CreatedAt:  time.Now(),
-	}
+	dep.Status = "running"
 	if err := h.Store.AddDeployment(dep); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -258,72 +741,507 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, sta
 	middleware.JSON(w, http.StatusCreated, dep)
 }
 
+// ---- List / Get / Delete ----
+
 func (h *DeployHandlers) List(w http.ResponseWriter, r *http.Request) {
-	middleware.JSON(w, http.StatusOK, h.Store.ListDeployments())
+	user, _ := middleware.UserFromContext(r.Context())
+	deps := h.Store.ListDeploymentsForUser(user.ID, user.Role)
+
+	// Enrichir avec le statut Docker réel + erreur si crashé
+	for i := range deps {
+		h.enrichStatus(&deps[i])
+	}
+	middleware.JSON(w, http.StatusOK, deps)
+}
+
+func (h *DeployHandlers) Get(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+	perms, _ := middleware.PermissionsFromContext(r.Context())
+	h.enrichStatus(&dep)
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"deployment":  dep,
+		"permissions": perms,
+	})
+}
+
+// enrichStatus : met à jour le statut en fonction de l'état Docker réel.
+func (h *DeployHandlers) enrichStatus(dep *store.Deployment) {
+	if dep.Status == "draft" {
+		return
+	}
+	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
+		"--format", "{{.State.Status}}|{{.State.ExitCode}}", dep.Container)
+	parts := strings.Split(strings.TrimSpace(statusOut), "|")
+	if len(parts) < 2 {
+		return
+	}
+	dockerStatus := parts[0]
+	exitCode, _ := strconv.Atoi(parts[1])
+
+	switch dockerStatus {
+	case "running":
+		if dep.Status != "running" {
+			dep.Status = "running"
+			dep.LastError = ""
+			_ = h.Store.UpdateDeployment(*dep)
+		}
+	case "exited":
+		if exitCode != 0 && dep.Status != "error" {
+			logs, _ := runCommand(5*time.Second, "docker", "logs", "--tail", "50", dep.Container)
+			dep.Status = "error"
+			dep.LastError = truncateError(logs)
+			dep.LastErrorAt = time.Now()
+			_ = h.Store.UpdateDeployment(*dep)
+		} else if exitCode == 0 && dep.Status != "stopped" {
+			dep.Status = "stopped"
+			_ = h.Store.UpdateDeployment(*dep)
+		}
+	}
 }
 
 func (h *DeployHandlers) Delete(w http.ResponseWriter, r *http.Request) {
-	name := nameFromPath("/api/deployments/", r.URL.Path)
-	deployments := h.Store.ListDeployments()
-	var target *store.Deployment
-	for i := range deployments {
-		if deployments[i].Name == name {
-			target = &deployments[i]
-			break
-		}
-	}
-	if target == nil {
-		middleware.JSONError(w, http.StatusNotFound, "deployment not found")
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
 		return
 	}
-	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", target.Container)
+	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
 	removeFiles := r.URL.Query().Get("removeFiles") == "true"
-	if removeFiles && target.Path != "" {
-		_ = os.RemoveAll(target.Path)
+	if removeFiles && dep.Path != "" {
+		_ = os.RemoveAll(dep.Path)
 	}
-	if err := h.Store.DeleteDeployment(name); err != nil {
+	if err := h.Store.DeleteDeployment(dep.ID); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// ---- Redeploy ----
+
 func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
-	name := nameFromPath("/api/deployments/", strings.TrimSuffix(r.URL.Path, "/redeploy"))
-	deployments := h.Store.ListDeployments()
-	var target *store.Deployment
-	for i := range deployments {
-		if deployments[i].Name == name {
-			target = &deployments[i]
-			break
-		}
-	}
-	if target == nil {
-		middleware.JSONError(w, http.StatusNotFound, "deployment not found")
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
 		return
 	}
-	if target.SourceType == "git" {
-		if out, err := runCommand(2*time.Minute, "git", "-C", target.Path, "pull"); err != nil {
+
+	if dep.SourceType == "git" {
+		if out, err := runCommand(2*time.Minute, "git", "-C", dep.Path, "pull"); err != nil {
 			middleware.JSONError(w, http.StatusInternalServerError, "git pull failed:\n"+out)
 			return
 		}
 	}
-	imageTag := "vpscontrol-" + target.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, target.Path)
+
+	internalPort := detectPort(dep.Path, dep.Stack).Port
+	if internalPort == "" {
+		internalPort = containerPortForStack(dep.Stack)
+	}
+
+	imageTag := "vpscontrol-" + dep.Name
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "build failed:\n"+out)
+		dep.Status = "error"
+		dep.LastError = truncateError("build failed:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
 		return
 	}
-	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", target.Container)
-	containerPort := containerPortForStack(target.Stack)
-	runArgs := []string{"run", "-d", "--name", target.Container, "--restart", "unless-stopped",
-		"-p", target.Port + ":" + containerPort, imageTag}
+	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
+
+	runArgs := buildRunArgs(dep, internalPort)
 	out, err = runCommand(30*time.Second, "docker", runArgs...)
 	if err != nil {
-		middleware.JSONError(w, http.StatusInternalServerError, "restart failed:\n"+out)
+		dep.Status = "error"
+		dep.LastError = truncateError("restart failed:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
 		return
 	}
+
+	dep.Status = "running"
+	dep.LastError = ""
+	_ = h.Store.UpdateDeployment(dep)
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ---- UpdateSettings ----
+
+type updateSettingsRequest struct {
+	Stack         string `json:"stack"`
+	NodeVersion   string `json:"nodeVersion"`
+	PythonVersion string `json:"pythonVersion"`
+	PHPVersion    string `json:"phpVersion"`
+	HostPort      string `json:"hostPort"`
+	InternalPort  string `json:"internalPort"`
+}
+
+func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	var req updateSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	validStacks := map[string]bool{
+		"laravel": true, "node": true, "react": true, "next": true,
+		"astro": true, "sveltekit": true, "nuxt": true, "python": true, "static": true,
+	}
+	if req.Stack != "" && !validStacks[req.Stack] {
+		middleware.JSONError(w, http.StatusBadRequest, "invalid stack")
+		return
+	}
+
+	changed := false
+	newStack := dep.Stack
+	if req.Stack != "" && req.Stack != dep.Stack {
+		newStack = req.Stack
+		changed = true
+	}
+	newNodeVersion := dep.NodeVersion
+	if req.NodeVersion != "" && req.NodeVersion != dep.NodeVersion {
+		if !allowedNodeVersions[req.NodeVersion] {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid node version")
+			return
+		}
+		newNodeVersion = req.NodeVersion
+		changed = true
+	}
+	newPythonVersion := dep.PythonVersion
+	if req.PythonVersion != "" && req.PythonVersion != dep.PythonVersion {
+		if !allowedPythonVersions[req.PythonVersion] {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid python version")
+			return
+		}
+		newPythonVersion = req.PythonVersion
+		changed = true
+	}
+	newPHPVersion := dep.PHPVersion
+	if req.PHPVersion != "" && req.PHPVersion != dep.PHPVersion {
+		if !allowedPHPVersions[req.PHPVersion] {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid php version")
+			return
+		}
+		newPHPVersion = req.PHPVersion
+		changed = true
+	}
+
+	newHostPort := dep.Port
+	if req.HostPort != "" && req.HostPort != dep.Port {
+		if _, err := strconv.Atoi(req.HostPort); err != nil {
+			middleware.JSONError(w, http.StatusBadRequest, "invalid host port")
+			return
+		}
+		if !portIsFree(req.HostPort) {
+			middleware.JSONError(w, http.StatusConflict,
+				fmt.Sprintf("host port %s is already in use", req.HostPort))
+			return
+		}
+		newHostPort = req.HostPort
+		changed = true
+	}
+
+	newInternalPort := req.InternalPort
+	if newInternalPort == "" {
+		det := detectPort(dep.Path, newStack)
+		newInternalPort = det.Port
+		if newInternalPort == "" {
+			newInternalPort = containerPortForStack(newStack)
+		}
+	}
+
+	if !changed {
+		middleware.JSON(w, http.StatusOK, map[string]interface{}{
+			"message": "No changes detected.",
+			"changed": false,
+		})
+		return
+	}
+
+	dep.Stack = newStack
+	dep.NodeVersion = newNodeVersion
+	dep.PythonVersion = newPythonVersion
+	dep.PHPVersion = newPHPVersion
+	dep.Port = newHostPort
+
+	if err := h.Store.UpdateDeployment(dep); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	opts := buildOptions{
+		Stack:         newStack,
+		NodeVersion:   newNodeVersion,
+		PythonVersion: newPythonVersion,
+		PHPVersion:    newPHPVersion,
+		HostPort:      newHostPort,
+		InternalPort:  newInternalPort,
+	}
+	dockerfilePath := filepath.Join(dep.Path, "Dockerfile")
+	_ = os.Remove(dockerfilePath)
+	if err := writeDockerfileIfMissing(dep.Path, opts); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, "failed to regenerate Dockerfile: "+err.Error())
+		return
+	}
+
+	imageTag := "vpscontrol-" + dep.Name
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
+	if err != nil {
+		dep.Status = "error"
+		dep.LastError = truncateError("docker build failed:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
+		return
+	}
+
+	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
+	runArgs := buildRunArgs(dep, newInternalPort)
+	out, err = runCommand(30*time.Second, "docker", runArgs...)
+	if err != nil {
+		dep.Status = "error"
+		dep.LastError = truncateError("failed to restart the container:\n" + out)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+		middleware.JSONError(w, http.StatusInternalServerError, dep.LastError)
+		return
+	}
+
+	dep.Status = "running"
+	_ = h.Store.UpdateDeployment(dep)
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"message":      "Settings updated. Container rebuilt and restarted.",
+		"changed":      true,
+		"deployment":   dep,
+		"internalPort": newInternalPort,
+	})
+}
+
+// ---- UpdateLimits ----
+
+type updateLimitsRequest struct {
+	CPUQuota  float64 `json:"cpuQuota"`
+	MemoryMB  int     `json:"memoryMB"`
+	DiskMB    int     `json:"diskMB"`
+	PidsLimit int     `json:"pidsLimit"`
+}
+
+func (h *DeployHandlers) UpdateLimits(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	var req updateLimitsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.CPUQuota < 0 || req.CPUQuota > 10000 {
+		middleware.JSONError(w, http.StatusBadRequest, "cpuQuota out of range")
+		return
+	}
+	if req.MemoryMB < 0 || req.MemoryMB > 1024*1024 {
+		middleware.JSONError(w, http.StatusBadRequest, "memoryMB out of range")
+		return
+	}
+	if req.PidsLimit < 0 || req.PidsLimit > 100000 {
+		middleware.JSONError(w, http.StatusBadRequest, "pidsLimit out of range")
+		return
+	}
+
+	dep.Limits = store.Limits{
+		CPUQuota:  req.CPUQuota,
+		MemoryMB:  req.MemoryMB,
+		DiskMB:    req.DiskMB,
+		PidsLimit: req.PidsLimit,
+	}
+	if err := h.Store.UpdateDeployment(dep); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	internalPort := detectPort(dep.Path, dep.Stack).Port
+	if internalPort == "" {
+		internalPort = containerPortForStack(dep.Stack)
+	}
+	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
+	runArgs := buildRunArgs(dep, internalPort)
+	out, err := runCommand(30*time.Second, "docker", runArgs...)
+	if err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, "limits saved but restart failed: "+out)
+		return
+	}
+	middleware.JSON(w, http.StatusOK, dep.Limits)
+}
+
+// ---- Console ----
+
+func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
+		"--format", "{{.State.Status}}|{{.State.ExitCode}}|{{.State.StartedAt}}|{{.State.FinishedAt}}",
+		dep.Container)
+	status := "unknown"
+	startedAt := ""
+	finishedAt := ""
+	exitCode := 0
+	parts := strings.Split(strings.TrimSpace(statusOut), "|")
+	if len(parts) >= 1 && parts[0] != "" {
+		status = parts[0]
+	}
+	if len(parts) >= 2 {
+		exitCode, _ = strconv.Atoi(parts[1])
+	}
+	if len(parts) >= 3 {
+		startedAt = parts[2]
+	}
+	if len(parts) >= 4 {
+		finishedAt = parts[3]
+	}
+
+	logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
+	logs := logsOut
+	if logs == "" {
+		logs = "(no logs yet)"
+	}
+
+	// Si le conteneur a crashé, on met à jour le statut et on stocke la dernière erreur
+	if status == "exited" && exitCode != 0 {
+		dep.Status = "error"
+		dep.LastError = truncateError(logs)
+		dep.LastErrorAt = time.Now()
+		_ = h.Store.UpdateDeployment(dep)
+	}
+
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"deploymentId": dep.ID,
+		"container":    dep.Container,
+		"status":       status,
+		"exitCode":     exitCode,
+		"startedAt":    startedAt,
+		"finishedAt":   finishedAt,
+		"logs":         logs,
+		"lastError":    dep.LastError,
+		"appStatus":    dep.Status,
+	})
+}
+
+func (h *DeployHandlers) ConsoleStream(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		middleware.JSONError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ctx := r.Context()
+	cmd, stdout, err := runStreamCommand(ctx, "docker", "logs", "-f", "--tail", "50", dep.Container)
+	if err != nil {
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+	defer func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}()
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fmt.Fprintf(w, "data: %s\n\n", line)
+		flusher.Flush()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
+}
+
+type consoleExecRequest struct {
+	Command string `json:"command"`
+}
+
+func (h *DeployHandlers) ConsoleExec(w http.ResponseWriter, r *http.Request) {
+	dep, ok := middleware.DeploymentFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
+		return
+	}
+
+	var req consoleExecRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	cmd := strings.TrimSpace(req.Command)
+	if cmd == "" {
+		middleware.JSONError(w, http.StatusBadRequest, "empty command")
+		return
+	}
+	if len(cmd) > 2000 {
+		middleware.JSONError(w, http.StatusBadRequest, "command too long (max 2000 chars)")
+		return
+	}
+
+	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
+		"--format", "{{.State.Status}}", dep.Container)
+	status := strings.TrimSpace(statusOut)
+	if status != "running" {
+		middleware.JSON(w, http.StatusOK, map[string]interface{}{
+			"output":   "Container is not running (status: " + status + ").",
+			"exitCode": -1,
+		})
+		return
+	}
+
+	out, err := runCommand(30*time.Second, "docker", "exec", dep.Container, "sh", "-c", cmd)
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"output":   out,
+		"exitCode": exitCode,
+	})
 }
 
 func unzip(src, dest string) error {
@@ -337,7 +1255,6 @@ func unzip(src, dest string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
 		fpathAbs, err := filepath.Abs(fpath)
@@ -373,4 +1290,12 @@ func unzip(src, dest string) error {
 		}
 	}
 	return nil
+}
+
+func truncateError(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 4000 {
+		return s[:4000] + "\n... (truncated)"
+	}
+	return s
 }

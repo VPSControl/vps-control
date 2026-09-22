@@ -15,8 +15,7 @@ const userCtxKey ctxKey = "user"
 
 const SessionCookieName = "vpscontrol_session"
 
-// Auth builds a middleware that checks the session cookie and injects the
-// current user into the request context.
+// Auth vérifie le cookie de session et injecte l'utilisateur dans le contexte.
 func Auth(secret []byte, st *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +40,7 @@ func Auth(secret []byte, st *store.Store) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAdmin must be chained after Auth.
+// RequireAdmin doit être chaîné après Auth.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := UserFromContext(r.Context())
@@ -56,6 +55,11 @@ func RequireAdmin(next http.Handler) http.Handler {
 func UserFromContext(ctx context.Context) (store.User, bool) {
 	u, ok := ctx.Value(userCtxKey).(store.User)
 	return u, ok
+}
+
+// contextWithUser : helper utilisé par APITokenAuth.
+func contextWithUser(r *http.Request, u store.User) context.Context {
+	return context.WithValue(r.Context(), userCtxKey, u)
 }
 
 func JSON(w http.ResponseWriter, status int, v interface{}) {

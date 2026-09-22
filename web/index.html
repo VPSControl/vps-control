@@ -1,325 +1,156 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VPS Control</title>
+<title>Sign in — VPS Control</title>
 <link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
-<link rel="stylesheet" href="/style.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  body {
+    background-image: radial-gradient(circle at 50% -10%, rgba(34,197,94,.15), transparent 40%);
+    background-attachment: fixed;
+  }
+  input {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 12px 14px; border-radius: 10px; font-size: 14px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
+  input::placeholder { color: #4b5563; }
+</style>
 </head>
-<body>
+<body class="min-h-screen flex items-center justify-center p-5">
 
-<!-- ===== Loading screen ===== -->
-<div id="screen-loading" class="screen center">
-  <div class="spinner"></div>
+<!-- Loading -->
+<div id="screen-loading" class="flex flex-col items-center gap-4">
+  <div class="w-12 h-12 rounded-full border-3 border-border border-t-accent animate-spin" style="border-width:3px"></div>
+  <p class="text-xs text-gray-500">Chargement...</p>
 </div>
 
-<!-- ===== Setup screen (first admin) ===== -->
-<div id="screen-setup" class="screen center hidden">
-  <form id="form-setup" class="auth-card">
-    <img src="/assets/logo-full.jpg" alt="VPS Control" class="auth-logo">
-    <h1>Initial setup</h1>
-    <p class="muted">Create the panel's first admin account. These credentials belong to VPS Control — they have nothing to do with the server's SSH or root access.</p>
-    <label>Username</label>
-    <input type="text" name="username" minlength="3" maxlength="32" required autocomplete="username">
-    <label>Password</label>
-    <input type="password" name="password" minlength="8" required autocomplete="new-password">
-    <button type="submit">Create admin account</button>
-    <p class="error" id="setup-error"></p>
+<!-- Setup -->
+<div id="screen-setup" class="hidden w-full max-w-md bg-panel border border-border rounded-2xl p-8 shadow-2xl">
+  <div class="flex justify-center mb-6">
+    <img src="/assets/logo-full.jpg" alt="VPS Control" class="h-14 rounded-lg">
+  </div>
+
+  <h1 class="text-2xl font-bold text-white text-center mb-2">Initial setup</h1>
+  <div class="w-8 h-1 bg-accent rounded-full mx-auto mb-6"></div>
+
+  <p class="text-sm text-gray-400 text-center leading-relaxed mb-6">
+    Create the panel's first admin account. These credentials belong to VPS Control —
+    they have nothing to do with the server's SSH or root access.
+  </p>
+
+  <form id="form-setup" class="space-y-4">
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Username</label>
+      <input type="text" name="username" minlength="3" maxlength="32" required autocomplete="username" placeholder="Enter username">
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Password</label>
+      <input type="password" name="password" minlength="8" required autocomplete="new-password" placeholder="Create a secure password">
+    </div>
+    <button type="submit" class="w-full py-3 rounded-xl bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+      <i class="fas fa-shield-halved mr-2"></i>Create admin account
+    </button>
+    <p class="error text-xs text-danger text-center min-h-[18px]" id="setup-error"></p>
   </form>
 </div>
 
-<!-- ===== Login screen ===== -->
-<div id="screen-login" class="screen center hidden">
-  <form id="form-login" class="auth-card">
-    <img src="/assets/logo-full.jpg" alt="VPS Control" class="auth-logo">
-    <h1>Sign in</h1>
-    <label>Username</label>
-    <input type="text" name="username" required autocomplete="username">
-    <label>Password</label>
-    <input type="password" name="password" required autocomplete="current-password">
-    <button type="submit">Sign in</button>
-    <p class="error" id="login-error"></p>
+<!-- Login -->
+<div id="screen-login" class="hidden w-full max-w-md bg-panel border border-border rounded-2xl p-8 shadow-2xl">
+  <div class="flex justify-center mb-6">
+    <img src="/assets/logo-full.jpg" alt="VPS Control" class="h-14 rounded-lg">
+  </div>
+
+  <h1 class="text-2xl font-bold text-white text-center mb-2">Sign in</h1>
+  <div class="w-8 h-1 bg-accent rounded-full mx-auto mb-6"></div>
+
+  <form id="form-login" class="space-y-4">
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Username</label>
+      <input type="text" name="username" required autocomplete="username" placeholder="Enter your username">
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Password</label>
+      <input type="password" name="password" required autocomplete="current-password" placeholder="Enter your password">
+    </div>
+    <button type="submit" class="w-full py-3 rounded-xl bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+      <i class="fas fa-right-to-bracket mr-2"></i>Sign in
+    </button>
+    <p class="error text-xs text-danger text-center min-h-[18px]" id="login-error"></p>
   </form>
 </div>
 
-<!-- ===== Main application ===== -->
-<div id="screen-app" class="screen hidden">
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <img src="/assets/logo-full.jpg" alt="VPS Control">
-    </div>
-    <nav>
-      <button class="nav-item active" data-tab="dashboard">Dashboard</button>
-      <button class="nav-item" data-tab="services">Services</button>
-      <button class="nav-item" data-tab="files">Files</button>
-      <button class="nav-item" data-tab="deploy">Deploy</button>
-      <button class="nav-item" data-tab="databases">Databases</button>
-      <button class="nav-item" data-tab="users" id="nav-users">Users</button>
-      <button class="nav-item" data-tab="system" id="nav-system">System</button>
-    </nav>
-    <div class="sidebar-footer">
-      <span id="current-user" class="muted"></span>
-      <button id="btn-logout" class="link-btn">Log out</button>
-    </div>
-  </aside>
-
-  <main>
-    <!-- ---- Dashboard ---- -->
-    <section id="tab-dashboard" class="tab active">
-      <div class="tab-header">
-        <h2>Dashboard</h2>
-        <button id="btn-refresh-dashboard" class="btn-secondary">Refresh</button>
-      </div>
-      <div class="stat-grid">
-        <div class="stat-card">
-          <span class="stat-icon">🐳</span>
-          <div>
-            <div class="stat-value" id="stat-services">—</div>
-            <div class="stat-label">running services</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <span class="stat-icon">🚀</span>
-          <div>
-            <div class="stat-value" id="stat-deployments">—</div>
-            <div class="stat-label">deployed apps</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <span class="stat-icon">💾</span>
-          <div>
-            <div class="stat-value" id="stat-disk">—</div>
-            <div class="stat-label">disk used</div>
-            <div class="stat-bar"><div class="stat-bar-fill" id="stat-disk-bar"></div></div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <span class="stat-icon">🧠</span>
-          <div>
-            <div class="stat-value" id="stat-mem">—</div>
-            <div class="stat-label">memory used</div>
-            <div class="stat-bar"><div class="stat-bar-fill" id="stat-mem-bar"></div></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---- Services ---- -->
-    <section id="tab-services" class="tab">
-      <div class="tab-header">
-        <h2>Services</h2>
-        <button id="btn-refresh-services" class="btn-secondary">Refresh</button>
-      </div>
-      <table class="data-table" id="services-table">
-        <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <div class="card">
-        <h3>Add a quick database</h3>
-        <form id="form-db-service" class="inline-form">
-          <input name="name" placeholder="name (e.g. myapp)" required>
-          <select name="engine">
-            <option value="mysql">MySQL</option>
-            <option value="postgres">PostgreSQL</option>
-          </select>
-          <input name="dbName" placeholder="database name" required>
-          <input name="user" placeholder="user" required>
-          <input name="password" type="password" placeholder="password" required>
-          <input name="port" placeholder="host port" required style="max-width:100px">
-          <button type="submit">Create</button>
-        </form>
-      </div>
-    </section>
-
-    <!-- ---- Files ---- -->
-    <section id="tab-files" class="tab">
-      <div class="tab-header">
-        <h2>Files</h2>
-        <div id="files-breadcrumb" class="breadcrumb"></div>
-      </div>
-      <div class="toolbar">
-        <button id="btn-new-folder" class="btn-secondary">New folder</button>
-        <form id="form-upload" class="inline-form">
-          <input type="file" name="file" required multiple>
-          <button type="submit">Upload</button>
-        </form>
-      </div>
-      <table class="data-table" id="files-table">
-        <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="file-editor" class="card hidden">
-        <div class="tab-header">
-          <h3 id="file-editor-name"></h3>
-          <div>
-            <button id="btn-save-file" class="btn-primary">Save</button>
-            <button id="btn-close-editor" class="btn-secondary">Close</button>
-          </div>
-        </div>
-        <textarea id="file-editor-content" spellcheck="false"></textarea>
-      </div>
-    </section>
-
-    <!-- ---- Deploy ---- -->
-    <section id="tab-deploy" class="tab">
-      <div class="tab-header"><h2>Deploy</h2></div>
-
-      <div class="deploy-grid">
-        <div class="card">
-          <h3>From a public GitHub repo</h3>
-          <form id="form-deploy-git">
-            <label>Application name</label>
-            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
-            <label>Repository URL</label>
-            <input name="repoUrl" placeholder="https://github.com/user/project.git" required>
-            <label>Stack</label>
-            <select name="stack">
-              <option value="auto">Auto-detect</option>
-              <option value="laravel">Laravel / PHP</option>
-              <option value="node">Node.js</option>
-              <option value="python">Python</option>
-              <option value="static">Static site</option>
-            </select>
-            <label>Port exposed on the VPS</label>
-            <input name="port" placeholder="8081" required>
-            <button type="submit">Deploy</button>
-          </form>
-        </div>
-
-        <div class="card">
-          <h3>From a .zip file</h3>
-          <form id="form-deploy-upload">
-            <label>Application name</label>
-            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
-            <label>Project .zip archive</label>
-            <input type="file" name="archive" accept=".zip" required>
-            <label>Stack</label>
-            <select name="stack">
-              <option value="auto">Auto-detect</option>
-              <option value="laravel">Laravel / PHP</option>
-              <option value="node">Node.js</option>
-              <option value="python">Python</option>
-              <option value="static">Static site</option>
-            </select>
-            <label>Port exposed on the VPS</label>
-            <input name="port" placeholder="8082" required>
-            <button type="submit">Deploy</button>
-          </form>
-        </div>
-      </div>
-
-      <p id="deploy-status" class="muted"></p>
-
-      <h3>Deployed applications</h3>
-      <table class="data-table" id="deployments-table">
-        <thead><tr><th>Name</th><th>Stack</th><th>Port</th><th>Source</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <!-- ---- Databases ---- -->
-    <section id="tab-databases" class="tab">
-      <div class="tab-header"><h2>Databases</h2></div>
-
-      <div class="card">
-        <h3>Connect an existing database</h3>
-        <form id="form-db-connection" class="inline-form">
-          <input name="name" placeholder="name (free text)" required>
-          <select name="driver">
-            <option value="mysql">MySQL</option>
-            <option value="postgres">PostgreSQL</option>
-          </select>
-          <input name="host" placeholder="host (e.g. localhost)" required>
-          <input name="port" placeholder="port" required style="max-width:90px">
-          <input name="user" placeholder="user" required>
-          <input name="password" type="password" placeholder="password">
-          <input name="dbname" placeholder="database name" required>
-          <button type="submit">Connect</button>
-        </form>
-      </div>
-
-      <div class="db-layout">
-        <div>
-          <h3>Connections</h3>
-          <ul id="db-connections-list" class="simple-list"></ul>
-        </div>
-        <div>
-          <h3>Tables</h3>
-          <ul id="db-tables-list" class="simple-list"></ul>
-        </div>
-      </div>
-
-      <div id="db-rows-area" class="hidden">
-        <div class="tab-header">
-          <h3 id="db-rows-title"></h3>
-        </div>
-        <div class="table-scroll"><table class="data-table" id="db-rows-table"></table></div>
-
-        <details>
-          <summary>Free-form SQL query</summary>
-          <textarea id="db-query-input" placeholder="SELECT * FROM ..."></textarea>
-          <button id="btn-run-query" class="btn-primary">Run</button>
-          <pre id="db-query-result" class="mono-block"></pre>
-        </details>
-      </div>
-    </section>
-
-    <!-- ---- Users ---- -->
-    <section id="tab-users" class="tab">
-      <div class="tab-header"><h2>Admin accounts</h2></div>
-      <div class="card">
-        <h3>Add an account</h3>
-        <form id="form-add-user" class="inline-form">
-          <input name="username" placeholder="username" required>
-          <input name="password" type="password" placeholder="password" required>
-          <select name="role">
-            <option value="admin">Admin</option>
-            <option value="viewer">Read-only</option>
-          </select>
-          <button type="submit">Add</button>
-        </form>
-      </div>
-      <table class="data-table" id="users-table">
-        <thead><tr><th>User</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <!-- ---- System ---- -->
-    <section id="tab-system" class="tab">
-      <div class="tab-header"><h2>System</h2></div>
-      <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
-        <div class="card">
-          <h3>Installed version</h3>
-          <p class="muted">Local commit: <code id="sys-local-commit">—</code></p>
-          <p class="muted">Repository: <code id="sys-repo-url">—</code></p>
-          <button id="btn-check-update" class="btn-secondary">Check for updates</button>
-          <p id="sys-update-status" class="muted" style="margin-top:10px;"></p>
-        </div>
-        <div class="card">
-          <h3>Update</h3>
-          <p class="muted">Pulls the latest version of the repo, rebuilds the binary and restarts the service. The panel will be unavailable for a few seconds.</p>
-          <button id="btn-run-update" class="btn-primary">Update now</button>
-          <p id="sys-update-result" class="muted" style="margin-top:10px;"></p>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Automatic updates on push (GitHub webhook)</h3>
-        <p class="muted">Add a webhook on the repo (Settings → Webhooks → Add webhook) so every push to GitHub is applied here right away, instead of waiting for the next scheduled check.</p>
-        <p class="muted">Payload URL</p>
-        <div class="code-row"><code id="sys-webhook-url">—</code><button id="btn-copy-webhook-url" class="action-btn">Copy</button></div>
-        <p class="muted" style="margin-top:10px;">Secret</p>
-        <div class="code-row"><code id="sys-webhook-secret">—</code><button id="btn-copy-webhook-secret" class="action-btn">Copy</button></div>
-        <p class="muted" style="margin-top:10px;">Content type: <code>application/json</code> · Events: <em>Just the push event</em></p>
-      </div>
-    </section>
-  </main>
-</div>
-
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200]"></div>
 
 <script src="/app.js"></script>
+<script>
+function showScreen(id) {
+  document.querySelectorAll('[id^="screen-"]').forEach(el => el.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+(async function() {
+  if (location.pathname.startsWith('/invite/')) {
+    location.href = '/invite.html?token=' + encodeURIComponent(location.pathname.replace('/invite/', ''));
+    return;
+  }
+  try {
+    const status = await api('/api/setup/status');
+    if (status.needsSetup) { showScreen('screen-setup'); return; }
+    const me = await api('/api/me').catch(() => null);
+    if (me) { location.href = '/dashboard.html'; return; }
+    showScreen('screen-login');
+  } catch (e) {
+    showScreen('screen-login');
+  }
+})();
+
+document.getElementById('form-setup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  document.getElementById('setup-error').textContent = '';
+  try {
+    await api('/api/setup', { method: 'POST', body: JSON.stringify(Object.fromEntries(fd)) });
+    location.href = '/dashboard.html';
+  } catch (err) {
+    document.getElementById('setup-error').textContent = err.message;
+  }
+});
+
+document.getElementById('form-login').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  document.getElementById('login-error').textContent = '';
+  try {
+    await api('/api/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(fd)) });
+    const pending = sessionStorage.getItem('pendingInvite');
+    if (pending) {
+      sessionStorage.removeItem('pendingInvite');
+      location.href = '/invite.html?token=' + encodeURIComponent(pending);
+      return;
+    }
+    location.href = '/dashboard.html';
+  } catch (err) {
+    document.getElementById('login-error').textContent = err.message;
+  }
+});
+</script>
 </body>
 </html>

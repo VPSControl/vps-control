@@ -40,6 +40,10 @@ clarity without spending their evening on it.
 - **Application deployment** from a public GitHub repo or a `.zip` archive,
   with automatic stack detection (Laravel/PHP, Node.js, Python, static
   sites) and `Dockerfile` generation if the project doesn't already have one.
+- **Custom domains & SSL, from the web** — point any domain at one of an
+  app's ports and get it reverse-proxied through Nginx with one click; an
+  optional Let's Encrypt certificate (via Certbot) is requested for you,
+  right from the app's *Domains* tab, no SSH needed.
 - **Database browser**: MySQL/PostgreSQL connections, tables, rows,
   free-form SQL queries.
 - **Built-in updates**: instantly via a GitHub webhook on every push, on
@@ -128,6 +132,7 @@ scattered wherever a deploy happened to land them:
 | Deployed applications | `/opt/vpscontrol/apps` |
 | systemd unit | `/etc/systemd/system/vpscontrol.service` |
 | Nginx site config | `/etc/nginx/sites-available/vpscontrol.conf` |
+| Per-app custom domains (generated from the *Domains* tab) | `/etc/nginx/sites-available/vpscontrol-domain-<hostname>.conf` |
 | TLS | Let's Encrypt via Certbot (domain), or self-signed at `/etc/vpscontrol/ssl/` (IP) |
 
 ## Environment variables

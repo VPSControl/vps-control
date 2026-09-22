@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invitation — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+</style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-5">
+
+<div class="w-full max-w-md bg-panel border border-border rounded-2xl p-8 shadow-2xl">
+  <div class="flex justify-center mb-6">
+    <div class="w-14 h-14 rounded-2xl bg-accent/15 border border-accent/30 flex items-center justify-center text-accent text-2xl">
+      <i class="fas fa-envelope-open-text"></i>
+    </div>
+  </div>
+
+  <h1 class="text-xl font-bold text-white text-center mb-2">Project invitation</h1>
+
+  <p id="message" class="text-sm text-gray-400 text-center leading-relaxed mb-6">
+    Loading...
+  </p>
+
+  <div id="details" class="hidden mb-6 p-4 rounded-lg bg-bg border border-border text-sm space-y-1">
+    <p class="text-gray-400">Project: <strong id="project-name" class="text-accent">—</strong></p>
+    <p class="text-gray-400">Permissions: <strong id="permissions" class="text-accent">—</strong></p>
+  </div>
+
+  <button id="btn-accept" class="hidden w-full py-3 rounded-xl bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+    <i class="fas fa-check mr-2"></i>Accept invitation
+  </button>
+
+  <p id="error" class="text-xs text-danger text-center mt-4 min-h-[18px]"></p>
+
+  <p class="text-xs text-gray-500 text-center mt-6">
+    Need an account? <a href="/index.html" class="text-accent hover:underline">Sign in</a> first.
+  </p>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200]"></div>
+
+<script src="/app.js"></script>
+<script>
+(async function() {
+  const token = new URLSearchParams(location.search).get('token');
+  if (!token) {
+    document.getElementById('message').textContent = 'Missing invitation token.';
+    return;
+  }
+  const me = await api('/api/me').catch(() => null);
+  if (!me) {
+    sessionStorage.setItem('pendingInvite', token);
+    document.getElementById('message').textContent = 'You need to sign in first to accept this invitation.';
+    setTimeout(() => location.href = '/index.html', 1500);
+    return;
+  }
+  document.getElementById('message').textContent = "You've been invited to collaborate on a project.";
+  document.getElementById('btn-accept').classList.remove('hidden');
+  document.getElementById('btn-accept').addEventListener('click', async () => {
+    document.getElementById('error').textContent = '';
+    try {
+      const res = await api(`/api/invite/${token}/accept`, { method:'POST' });
+      document.getElementById('project-name').textContent = res.deployment.name;
+      document.getElementById('permissions').textContent = (res.permissions || []).join(', ');
+      document.getElementById('details').classList.remove('hidden');
+      toast('Invitation accepted!');
+      setTimeout(() => location.href = `/server.html?id=${res.deployment.id}`, 1200);
+    } catch (err) {
+      document.getElementById('error').textContent = err.message;
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deploy — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  input, select, textarea {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; padding-right: 34px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">Deploy</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8 max-w-6xl">
+    <h1 class="text-xl lg:text-2xl font-bold text-white mb-6">Deploy</h1>
+
+    <div class="bg-accent/10 border border-accent/30 rounded-xl p-4 mb-6 flex items-start gap-3">
+      <i class="fas fa-circle-info text-accent mt-0.5"></i>
+      <div class="text-sm text-accent">
+        <strong>Import ZIP</strong> : les fichiers sont extraits dans le dossier de l'app, tu es redirigé vers la page de configuration, puis tu peux déployer quand tu veux. <strong>GitHub</strong> : déploiement direct.
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- GitHub -->
+      <div class="bg-panel border border-border rounded-xl p-5">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fab fa-github text-gray-400"></i>From a public GitHub repo</h2>
+        <form id="form-deploy-git">
+          <label>Application name</label>
+          <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+          <label>Repository URL</label>
+          <input name="repoUrl" placeholder="https://github.com/user/project.git" required>
+          <label>Stack</label>
+          <select name="stack" class="stack-select">
+            <option value="auto">Auto-detect</option>
+            <option value="laravel">Laravel / PHP</option>
+            <option value="node">Node.js</option>
+            <option value="react">React SPA (Vite, CRA)</option>
+            <option value="next">Next.js</option>
+            <option value="astro">Astro</option>
+            <option value="sveltekit">SvelteKit</option>
+            <option value="nuxt">Nuxt</option>
+            <option value="python">Python</option>
+            <option value="static">Static site</option>
+          </select>
+
+          <div class="version-row version-node">
+            <label>Node.js version</label>
+            <select name="nodeVersion">
+              <option value="18">Node 18</option>
+              <option value="20" selected>Node 20 (LTS)</option>
+              <option value="22">Node 22</option>
+            </select>
+          </div>
+          <div class="version-row version-python hidden">
+            <label>Python version</label>
+            <select name="pythonVersion">
+              <option value="3.10">Python 3.10</option>
+              <option value="3.11">Python 3.11</option>
+              <option value="3.12" selected>Python 3.12</option>
+            </select>
+          </div>
+          <div class="version-row version-php hidden">
+            <label>PHP version</label>
+            <select name="phpVersion">
+              <option value="8.1">PHP 8.1</option>
+              <option value="8.2">PHP 8.2</option>
+              <option value="8.3" selected>PHP 8.3</option>
+            </select>
+          </div>
+
+          <label>Port exposed on the VPS</label>
+          <div class="flex gap-2">
+            <input name="port" placeholder="auto (8080, 8081...)" class="flex-1">
+            <button type="button" class="btn-secondary suggest-port-btn px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap">
+              <i class="fas fa-magnifying-glass"></i>
+            </button>
+          </div>
+          <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
+
+          <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fas fa-rocket mr-2"></i>Deploy now
+          </button>
+        </form>
+      </div>
+
+      <!-- ZIP -->
+      <div class="bg-panel border border-border rounded-xl p-5">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fas fa-file-zipper text-gray-400"></i>From a .zip file</h2>
+        <form id="form-deploy-upload">
+          <label>Application name</label>
+          <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+          <label>Project .zip archive</label>
+          <input type="file" name="archive" accept=".zip" required>
+
+          <label>Port exposed on the VPS</label>
+          <div class="flex gap-2">
+            <input name="port" placeholder="auto (8080, 8081...)" class="flex-1">
+            <button type="button" class="btn-secondary suggest-port-btn px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap">
+              <i class="fas fa-magnifying-glass"></i>
+            </button>
+          </div>
+          <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
+
+          <p class="text-xs text-gray-500 mt-3 leading-relaxed">
+            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer.
+          </p>
+
+          <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fas fa-file-import mr-2"></i>Import &amp; configure
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <p id="deploy-status" class="text-sm text-gray-500 mt-6"></p>
+  </main>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
+
+<script src="/app.js"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu')?.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); });
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
+(async function() {
+  const me = await requireAuth({ adminOnly: true });
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  buildNav('deploy', me.role === 'admin');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+})();
+
+function updateVersionVisibility(select) {
+  const form = select.closest('form');
+  const value = select.value;
+  const nodeRow = form.querySelector('.version-node');
+  const pythonRow = form.querySelector('.version-python');
+  const phpRow = form.querySelector('.version-php');
+  const nodeStacks = ['auto','node','react','next','astro','sveltekit','nuxt'];
+  const pythonStacks = ['auto','python'];
+  const phpStacks = ['auto','laravel'];
+  if (nodeRow) nodeRow.classList.toggle('hidden', !nodeStacks.includes(value));
+  if (pythonRow) pythonRow.classList.toggle('hidden', !pythonStacks.includes(value));
+  if (phpRow) phpRow.classList.toggle('hidden', !phpStacks.includes(value));
+}
+
+async function suggestPort(form) {
+  const stackSel = form.querySelector('.stack-select');
+  const repoInput = form.querySelector('input[name="repoUrl"]');
+  const portInput = form.querySelector('input[name="port"]');
+  const hint = form.querySelector('.port-hint');
+  const btn = form.querySelector('.suggest-port-btn');
+  const stack = stackSel ? stackSel.value : 'auto';
+  const repoUrl = repoInput ? repoInput.value.trim() : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  if (hint) hint.textContent = 'Detecting...';
+  try {
+    const params = new URLSearchParams({ stack });
+    if (repoUrl) params.set('repoUrl', repoUrl);
+    const res = await api(`/api/deploy/suggest-port?${params.toString()}`);
+    if (portInput) portInput.value = res.hostPort;
+    const autoMsg = res.autoAssigned ? ' (auto)' : '';
+    if (hint) hint.textContent = `internal: ${res.internalPort} — ${res.source}${autoMsg}`;
+    toast(`Suggested: ${res.hostPort}`);
+  } catch (err) {
+    if (hint) hint.textContent = '';
+    toast(err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magnifying-glass"></i>'; }
+  }
+}
+
+['#form-deploy-git','#form-deploy-upload'].forEach(sel => {
+  const form = document.querySelector(sel);
+  if (!form) return;
+  const stackSel = form.querySelector('.stack-select');
+  if (stackSel) {
+    stackSel.addEventListener('change', () => updateVersionVisibility(stackSel));
+    updateVersionVisibility(stackSel);
+  }
+  const btn = form.querySelector('.suggest-port-btn');
+  if (btn) btn.addEventListener('click', () => suggestPort(form));
+});
+
+document.getElementById('form-deploy-git').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(e.target));
+  document.getElementById('deploy-status').textContent = 'Deploying (clone + docker build)... this can take a minute or two.';
+  try {
+    const dep = await api('/api/deploy/git', { method:'POST', body: JSON.stringify(fd) });
+    toast(`App "${fd.name}" deployed`);
+    location.href = `/server.html?id=${dep.id}&tab=console`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('form-deploy-upload').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  document.getElementById('deploy-status').textContent = 'Uploading and extracting...';
+  try {
+    const dep = await api('/api/deploy/upload', { method:'POST', body: fd });
+    toast('Files extracted. Configure and deploy.');
+    location.href = `/server.html?id=${dep.id}&tab=files`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+});
+</script>
+</body>
+</html>

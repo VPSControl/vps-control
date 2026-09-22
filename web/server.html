@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937',
+      accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444',
+      amber: { light: 'rgba(245,158,11,.15)', DEFAULT: '#f59e0b', dark: '#b45309' }
+    },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a0f1a; }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #374151; }
+  input, select, textarea {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; padding-right: 34px; }
+  textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; min-height: 90px; resize: vertical; }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: #22c55e; background: #0a0f1a; border: 1px solid #1f2937; border-radius: 6px; padding: 2px 8px; }
+  .console-output { background: #06090d; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .console-line { display: flex; gap: 8px; line-height: 1.55; align-items: flex-start; }
+  .console-tag { color: #6baa8a; flex-shrink: 0; }
+  .console-line.error-line { color: #ff8a80; }
+  .console-line.cmd .console-tag { color: #4ade80; font-weight: bold; }
+  .console-line .edit-btn { opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+  .console-line:hover .edit-btn { opacity: 1; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Mobile top bar -->
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span id="mobile-title" class="text-sm font-semibold text-gray-300 truncate">Server</span>
+  <button id="btn-menu-app" class="text-gray-300 hover:text-white p-2"><i class="fas fa-sliders text-xl"></i></button>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+<div id="app-sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+
+  <!-- Main sidebar -->
+  <aside id="sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- App sidebar -->
+  <aside id="app-sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex lg:mt-0 mt-14">
+    <div class="p-4 border-b border-border">
+      <a href="/servers.html" class="inline-flex items-center gap-2 text-xs text-gray-400 hover:text-accent transition mb-3">
+        <i class="fas fa-arrow-left"></i>All servers
+      </a>
+      <h2 id="app-name" class="text-base font-bold text-white truncate">—</h2>
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
+        <span id="app-stack" class="inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-accent/15 text-accent">—</span>
+        <span id="app-status" class="inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-panel2 text-gray-400">—</span>
+      </div>
+      <p class="text-[11px] mono text-gray-500 mt-2 truncate" id="app-domain">—</p>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="app-nav-container"></nav>
+    <div class="p-4 border-t border-border text-[11px] text-gray-500">
+      <span id="app-role">—</span>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-6 pb-20">
+
+    <!-- Draft banner -->
+    <div id="draft-banner" class="hidden bg-amber-light border border-amber rounded-xl p-4 mb-4 flex flex-col sm:flex-row items-start gap-3">
+      <i class="fas fa-box-open text-amber text-xl mt-0.5"></i>
+      <div class="flex-1">
+        <h3 class="text-amber font-bold text-sm">Draft — not deployed yet</h3>
+        <p class="text-amber text-xs mt-1 opacity-90">
+          Files are extracted. Check them in the Files tab, then click "Deploy now" to build and start the app.
+        </p>
+        <button id="btn-deploy-draft" class="mt-3 px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+          <i class="fas fa-rocket mr-2"></i>Deploy now
+        </button>
+      </div>
+    </div>
+
+    <!-- Error banner -->
+    <div id="error-banner" class="hidden bg-danger/10 border border-danger/40 rounded-xl p-4 mb-4 flex items-start gap-3">
+      <i class="fas fa-triangle-exclamation text-danger text-xl mt-0.5"></i>
+      <div class="flex-1 min-w-0">
+        <h3 class="text-danger font-bold text-sm">The server stopped on an error</h3>
+        <p class="text-danger/80 text-xs mt-1" id="error-time"></p>
+        <pre id="error-content" class="mt-3 p-3 bg-bg border border-danger/30 rounded-lg text-xs text-red-200 overflow-auto max-h-56 whitespace-pre-wrap mono"></pre>
+        <div class="mt-3 flex gap-2 flex-wrap">
+          <button id="btn-edit-error" class="hidden px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+            <i class="fas fa-pen-to-square mr-1"></i>Open error in editor
+          </button>
+          <button id="btn-go-console" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent text-xs transition">
+            <i class="fas fa-terminal mr-1"></i>Console
+          </button>
+          <button id="btn-dismiss-error" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 text-xs transition">
+            <i class="fas fa-xmark mr-1"></i>Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== CONSOLE ===== -->
+    <section id="tab-console" class="tab-content">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-4">
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">CPU</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-cpu">—</div>
+          <div class="h-1 bg-panel2 rounded-full mt-2 overflow-hidden"><div class="h-full bg-accent transition-all" id="live-cpu-bar" style="width:0%"></div></div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">RAM</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-ram">—</div>
+          <div class="h-1 bg-panel2 rounded-full mt-2 overflow-hidden"><div class="h-full bg-accent transition-all" id="live-ram-bar" style="width:0%"></div></div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Net in</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-netrx">—</div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Net out</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-nettx">—</div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">PIDs</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-pids">—</div>
+        </div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-gray-500" id="console-status-dot"></span>
+            <span class="text-gray-400" id="console-status-text">—</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="start">
+              <i class="fas fa-play mr-1"></i>Start
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="restart">
+              <i class="fas fa-rotate mr-1"></i>Restart
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="stop">
+              <i class="fas fa-stop mr-1"></i>Stop
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" data-power="kill">
+              <i class="fas fa-skull mr-1"></i>Kill
+            </button>
+            <button id="btn-console-clear" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Clear">
+              <i class="fas fa-broom"></i>
+            </button>
+            <button id="btn-console-autoscroll" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-accent transition" title="Auto-scroll">
+              <i class="fas fa-arrow-down"></i>
+            </button>
+          </div>
+        </div>
+        <div id="console-output" class="console-output h-[400px] lg:h-[480px] overflow-y-auto p-4 text-xs"></div>
+        <div class="flex items-center gap-2 px-4 py-2.5 border-t border-border bg-panel">
+          <span class="text-accent mono font-bold text-sm">$</span>
+          <input id="console-command" placeholder="Send a command (ls, env, ps aux...)" autocomplete="off" class="!border-0 !bg-transparent !p-0 !shadow-none mono text-xs focus:!shadow-none">
+          <button id="btn-console-send" class="text-xs px-3 py-1.5 rounded-md bg-accent hover:bg-accentDark text-slate-900 font-semibold transition">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FILES ===== -->
+    <section id="tab-files" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div id="files-breadcrumb" class="text-xs mono text-gray-500"></div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-file-new-file" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+            <i class="fas fa-file-circle-plus mr-1"></i>File
+          </button>
+          <button id="btn-file-new-folder" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+            <i class="fas fa-folder-plus mr-1"></i>Folder
+          </button>
+          <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+            <i class="fas fa-upload mr-1"></i>Upload
+            <input type="file" id="input-file-upload" multiple class="hidden">
+          </label>
+          <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+            <i class="fas fa-file-zipper mr-1"></i>Import ZIP
+            <input type="file" id="input-zip-upload" accept=".zip,.tar,.tar.gz,.tgz" class="hidden">
+          </label>
+        </div>
+      </div>
+
+      <div id="file-selection-bar" class="hidden bg-accent/10 border border-accent/30 rounded-lg px-3 py-2 mb-3 flex items-center justify-between flex-wrap gap-2">
+        <span class="text-xs text-accent" id="file-selection-count">0 selected</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button id="btn-sel-download" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download"><i class="fas fa-download"></i></button>
+          <button id="btn-sel-download-zip" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download as ZIP"><i class="fas fa-file-zipper"></i></button>
+          <button id="btn-sel-move" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Move"><i class="fas fa-arrows-up-down-left-right"></i></button>
+          <button id="btn-sel-compress" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Compress"><i class="fas fa-file-archive"></i></button>
+          <button id="btn-sel-delete" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" title="Delete"><i class="fas fa-trash"></i></button>
+          <button id="btn-sel-clear" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 transition" title="Clear"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="w-8 px-3 py-2"><input type="checkbox" id="files-select-all" class="accent-accent w-auto"></th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden sm:table-cell">Size</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden md:table-cell">Modified</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="app-files-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ENV ===== -->
+    <section id="tab-env" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Environment Variables</h2>
+        <div class="flex gap-2">
+          <button id="btn-env-add" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition"><i class="fas fa-plus mr-1"></i>Add</button>
+          <button id="btn-env-save" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-floppy-disk mr-1"></i>Save all</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Written to <code>{app}/.env</code> and injected into the container on next restart.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3" style="width:35%">Key</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3">Value</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3" style="width:100px"></th>
+              </tr>
+            </thead>
+            <tbody id="env-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <p id="env-status" class="text-xs text-gray-500 mt-3"></p>
+    </section>
+
+    <!-- ===== ALLOCATIONS ===== -->
+    <section id="tab-allocations" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Port Allocations</h2>
+        <button id="btn-alloc-add" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add port</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Each port is mapped to the app's internal port. Adding or removing a port restarts the container.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Port</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Label</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Primary</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="alloc-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DOMAINS ===== -->
+    <section id="tab-domains" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Domains &amp; SSL</h2>
+        <button id="btn-domain-add" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add domain</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Points a domain name at one of this app's ports through Nginx, with an optional free Let's Encrypt certificate (Certbot). Make sure the domain's DNS <strong>A record</strong> already points at this server before adding it.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Domain</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Port</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">SSL</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="domain-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== LIMITS ===== -->
+    <section id="tab-limits" class="tab-content hidden">
+      <h2 class="text-lg font-bold text-white mb-4">Resource Limits</h2>
+      <p class="text-xs text-gray-500 mb-4">Applied via Docker on the container. 0 = unlimited.</p>
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">CPU quota (%) — 100 = 1 core</label>
+            <input id="limit-cpu" type="number" min="0" max="10000" step="10" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Memory (MB)</label>
+            <input id="limit-memory" type="number" min="0" step="32" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">PIDs limit</label>
+            <input id="limit-pids" type="number" min="0" step="10" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Disk (MB, informational)</label>
+            <input id="limit-disk" type="number" min="0" step="100" placeholder="0">
+          </div>
+        </div>
+        <button id="btn-limits-save" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition"><i class="fas fa-floppy-disk mr-2"></i>Apply limits</button>
+        <p id="limits-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+    </section>
+
+    <!-- ===== BACKUPS ===== -->
+    <section id="tab-backups" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Backups</h2>
+        <button id="btn-create-backup" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Create backup</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Snapshots of the app files. Node modules, .git and vendor folders are excluded.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Size</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="backups-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SCHEDULES ===== -->
+    <section id="tab-schedules" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Schedules</h2>
+        <button id="btn-create-schedule" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add schedule</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Cron expressions (5 fields, standard). Server's timezone.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Cron</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Action</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Enabled</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Last run</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="schedules-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section id="tab-settings" class="tab-content hidden">
+      <h2 class="text-lg font-bold text-white mb-4">Startup Configuration</h2>
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl mb-4">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Stack</label>
+            <select id="set-stack">
+              <option value="node">Node.js</option>
+              <option value="react">React SPA</option>
+              <option value="next">Next.js</option>
+              <option value="astro">Astro</option>
+              <option value="sveltekit">SvelteKit</option>
+              <option value="nuxt">Nuxt</option>
+              <option value="python">Python</option>
+              <option value="laravel">Laravel / PHP</option>
+              <option value="static">Static</option>
+            </select>
+          </div>
+          <div class="version-row version-node">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Node.js version</label>
+            <select id="set-node-version">
+              <option value="18">Node 18</option>
+              <option value="20">Node 20 (LTS)</option>
+              <option value="22">Node 22</option>
+            </select>
+          </div>
+          <div class="version-row version-python hidden">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Python version</label>
+            <select id="set-python-version">
+              <option value="3.10">Python 3.10</option>
+              <option value="3.11">Python 3.11</option>
+              <option value="3.12">Python 3.12</option>
+            </select>
+          </div>
+          <div class="version-row version-php hidden">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">PHP version</label>
+            <select id="set-php-version">
+              <option value="8.1">PHP 8.1</option>
+              <option value="8.2">PHP 8.2</option>
+              <option value="8.3">PHP 8.3</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Host port</label>
+            <input id="set-host-port" placeholder="8080">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Internal port</label>
+            <input id="set-internal-port" placeholder="3000">
+          </div>
+        </div>
+        <button id="btn-save-settings" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition"><i class="fas fa-arrows-rotate mr-2"></i>Save & Redeploy</button>
+        <p id="settings-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+      <div class="bg-panel border border-danger/30 rounded-xl p-5 max-w-2xl">
+        <h3 class="font-semibold text-danger mb-3 flex items-center gap-2"><i class="fas fa-triangle-exclamation"></i>Danger zone</h3>
+        <button id="btn-delete-app" class="px-3 py-2 rounded-lg bg-panel2 border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition">
+          <i class="fas fa-trash mr-1"></i>Delete this app
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== SUBUSERS ===== -->
+    <section id="tab-subusers" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Collaborators</h2>
+        <button id="btn-open-invite" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Invite</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Collaborators can only access this app — never the rest of the VPS.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">User</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Permissions</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Since</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="subusers-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Bottom tab bar (mobile) -->
+<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-panel border-t border-border z-30 flex" id="bottom-tabs">
+  <button data-tab="console" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-terminal text-base"></i>Console
+  </button>
+  <button data-tab="files" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-folder text-base"></i>Files
+  </button>
+  <button data-tab="settings" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-gear text-base"></i>Settings
+  </button>
+  <button data-tab="subusers" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-users text-base"></i>Users
+  </button>
+</nav>
+
+<!-- Modals -->
+<div id="alloc-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Add a port</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Port</label>
+    <input id="alloc-port" placeholder="8080">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Label (optional)</label>
+    <input id="alloc-label" placeholder="public / api / websocket">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-alloc-cancel" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-alloc-confirm" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Add</button>
+    </div>
+  </div>
+</div>
+
+<div id="domain-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Add a domain</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Domain name</label>
+    <input id="domain-hostname" placeholder="app.example.com">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Target port (optional)</label>
+    <input id="domain-port" placeholder="defaults to the app's primary port">
+    <label class="flex items-center gap-2 mt-4 text-sm text-gray-300">
+      <input type="checkbox" id="domain-ssl" checked style="width:auto">
+      Request a free Let's Encrypt SSL certificate now
+    </label>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Email for Let's Encrypt (optional)</label>
+    <input id="domain-email" placeholder="you@example.com">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-domain-cancel" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-domain-confirm" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Add domain</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="backup-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Create a backup</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Name (optional)</label>
+    <input id="backup-name" placeholder="Before upgrade to Node 22">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Notes (optional)</label>
+    <textarea id="backup-notes" rows="3"></textarea>
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-backup" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-backup" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Create</button>
+    </div>
+  </div>
+</div>
+
+<div id="schedule-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 id="schedule-modal-title" class="text-lg font-bold text-white mb-4">Add a schedule</h3>
+    <input type="hidden" id="schedule-id">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Name</label>
+    <input id="schedule-name" placeholder="Daily backup">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Cron expression</label>
+    <input id="schedule-cron" placeholder="0 3 * * *">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Action</label>
+    <select id="schedule-action">
+      <option value="backup">Backup</option>
+      <option value="restart">Restart container</option>
+      <option value="command">Run command</option>
+    </select>
+    <div id="schedule-command-row" class="hidden mt-4">
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Command</label>
+      <input id="schedule-command" placeholder="php artisan migrate">
+    </div>
+    <label class="flex items-center gap-2 mt-4 text-sm text-gray-300 cursor-pointer">
+      <input type="checkbox" id="schedule-enabled" checked class="accent-accent w-auto"> Enabled
+    </label>
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-schedule" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-schedule" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="invite-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <h3 class="text-lg font-bold text-white mb-4">Invite a collaborator</h3>
+    <p class="text-xs text-gray-500 mb-3">Select permissions:</p>
+    <div class="space-y-2 p-3 rounded-lg bg-bg border border-border">
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="console" checked class="accent-accent w-auto"> Console</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="files.read" checked class="accent-accent w-auto"> Files (read)</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="files.write" class="accent-accent w-auto"> Files (write)</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="settings" class="accent-accent w-auto"> Settings</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="backup" class="accent-accent w-auto"> Backups</label>
+    </div>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Expires in (hours)</label>
+    <input id="invite-expires" type="number" value="24" min="1" max="720">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-invite" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-invite" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Generate link</button>
+    </div>
+    <div id="invite-link-result" class="hidden mt-4">
+      <p class="text-xs text-gray-500 mb-2">Share this link:</p>
+      <div class="flex items-center gap-2">
+        <code id="invite-link" class="flex-1 block truncate p-2"></code>
+        <button class="copy-btn px-2 py-2 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition text-xs" data-target="invite-link"><i class="fas fa-copy"></i></button>
+      </div>
+      <p class="text-[10px] text-gray-500 mt-2" id="invite-link-meta"></p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200] max-w-[90vw]"></div>
+
+<script src="/app.js"></script>
+<script>
+// ============ STATE ============
+let currentApp = null;
+let currentAppPermissions = [];
+let appFilesPath = '';
+let consoleEventSource = null;
+let consoleAutoScroll = true;
+let selectedFiles = new Set();
+let liveStatsTimer = null;
+
+const params = new URLSearchParams(location.search);
+const appId = params.get('id');
+const activeTab = params.get('tab') || 'console';
+
+if (!appId) location.href = '/servers.html';
+
+function hasPerm(perm) {
+  if (!currentAppPermissions) return false;
+  if (currentAppPermissions.includes('*')) return true;
+  if (currentAppPermissions.includes(perm)) return true;
+  if (perm === 'files.read' && currentAppPermissions.includes('files.write')) return true;
+  return false;
+}
+
+// ============ SIDEBAR MOBILE ============
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+const appSidebar = document.getElementById('app-sidebar');
+const appOverlay = document.getElementById('app-sidebar-overlay');
+
+document.getElementById('btn-menu')?.addEventListener('click', () => {
+  sidebar.classList.remove('hidden');
+  sidebar.classList.remove('-translate-x-full');
+  overlay.classList.remove('hidden');
+});
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => {
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+});
+overlay?.addEventListener('click', () => {
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+});
+document.getElementById('btn-menu-app')?.addEventListener('click', () => {
+  appSidebar.classList.remove('hidden');
+  appSidebar.classList.remove('-translate-x-full');
+  appOverlay.classList.remove('hidden');
+});
+appOverlay?.addEventListener('click', () => {
+  appSidebar.classList.add('-translate-x-full');
+  appOverlay.classList.add('hidden');
+});
+
+// ============ APP TABS ============
+const APP_TABS = [
+  { id: 'console', icon: 'fa-terminal', label: 'Console', perm: 'console' },
+  { id: 'files', icon: 'fa-folder', label: 'Files', perm: 'files.read' },
+  { id: 'env', icon: 'fa-wrench', label: 'Environment', perm: 'settings' },
+  { id: 'allocations', icon: 'fa-plug', label: 'Allocations', perm: 'settings' },
+  { id: 'domains', icon: 'fa-globe', label: 'Domains', perm: 'settings' },
+  { id: 'limits', icon: 'fa-bolt', label: 'Limits', perm: 'settings' },
+  { id: 'backups', icon: 'fa-database', label: 'Backups', perm: 'backup' },
+  { id: 'schedules', icon: 'fa-clock', label: 'Schedules', perm: 'settings' },
+  { id: 'settings', icon: 'fa-gear', label: 'Settings', perm: 'settings' },
+  { id: 'subusers', icon: 'fa-users-gear', label: 'Collaborators', perm: 'settings' },
+];
+
+function buildAppNav(active) {
+  const visible = APP_TABS.filter(t => hasPerm(t.perm));
+  document.getElementById('app-nav-container').innerHTML = visible.map(t =>
+    `<a href="#" data-tab="${t.id}" class="app-nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${t.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${t.icon} w-4"></i><span>${t.label}</span></a>`
+  ).join('');
+  document.querySelectorAll('.app-nav-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      activateTab(el.dataset.tab);
+      if (window.innerWidth < 1024) {
+        appSidebar.classList.add('-translate-x-full');
+        appOverlay.classList.add('hidden');
+      }
+    });
+  });
+  document.querySelectorAll('#bottom-tabs button').forEach(btn => {
+    const tab = APP_TABS.find(t => t.id === btn.dataset.tab);
+    btn.style.display = (tab && hasPerm(tab.perm)) ? '' : 'none';
+    btn.classList.toggle('text-accent', btn.dataset.tab === active);
+    btn.classList.toggle('text-gray-500', btn.dataset.tab !== active);
+  });
+}
+
+document.querySelectorAll('#bottom-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+});
+
+function activateTab(tab) {
+  const meta = APP_TABS.find(t => t.id === tab);
+  if (!meta || !hasPerm(meta.perm)) {
+    const first = APP_TABS.find(t => hasPerm(t.perm));
+    tab = first ? first.id : 'console';
+  }
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  const el = document.getElementById('tab-' + tab);
+  if (el) el.classList.remove('hidden');
+  buildAppNav(tab);
+  const titleMap = { console: 'Console', files: 'Files', env: 'Environment', allocations: 'Ports', domains: 'Domains', limits: 'Limits', backups: 'Backups', schedules: 'Schedules', settings: 'Settings', subusers: 'Collaborators' };
+  document.getElementById('mobile-title').textContent = titleMap[tab] || 'Server';
+
+  if (tab !== 'console' && consoleEventSource) { consoleEventSource.close(); consoleEventSource = null; }
+  if (tab !== 'console' && liveStatsTimer) { clearInterval(liveStatsTimer); liveStatsTimer = null; }
+
+  const url = new URL(location.href);
+  url.searchParams.set('tab', tab);
+  history.replaceState({}, '', url);
+
+  if (tab === 'console') initConsole();
+  if (tab === 'files') loadAppFiles('');
+  if (tab === 'env') loadEnv();
+  if (tab === 'allocations') loadAllocations();
+  if (tab === 'domains') loadDomains();
+  if (tab === 'limits') loadLimits();
+  if (tab === 'backups') loadBackups();
+  if (tab === 'schedules') loadSchedules();
+  if (tab === 'settings') loadAppSettings();
+  if (tab === 'subusers') loadSubusers();
+}
+
+// ============ INIT ============
+(async function() {
+  const me = await requireAuth();
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  renderSidebar('servers');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+  await loadApp();
+})();
+
+async function loadApp() {
+  try {
+    const res = await api(`/api/deployments/${appId}`);
+    currentApp = res.deployment;
+    currentAppPermissions = res.permissions || [];
+
+    document.getElementById('app-name').textContent = currentApp.name;
+    const sl = stackLabel(currentApp.stack, currentApp);
+    document.getElementById('app-stack').textContent = (currentApp.stack === 'auto' || currentApp.status === 'draft') ? 'Draft' : sl.base + ' · ' + sl.ver;
+    document.getElementById('app-domain').textContent = currentApp.status === 'draft' ? 'Not deployed yet' : `http://${location.hostname}:${currentApp.port}`;
+    document.getElementById('app-role').textContent = currentApp.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
+
+    if (currentApp.status === 'draft') {
+      document.getElementById('draft-banner').classList.remove('hidden');
+      document.getElementById('app-status').textContent = 'Draft';
+      document.getElementById('app-status').className = 'inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-light text-amber';
+    } else if (currentApp.status === 'error') {
+      showErrorBanner(currentApp.lastError, currentApp.lastErrorAt);
+      document.getElementById('app-status').textContent = 'Error';
+      document.getElementById('app-status').className = 'inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-danger/15 text-danger';
+    } else if (currentApp.status === 'running') {
+      document.getElementById('app-status').textContent = 'Running';
+      document.getElementById('app-status').className = 'inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-accent/15 text-accent';
+    }
+
+    activateTab(activeTab);
+  } catch (err) {
+    toast(err.message, true);
+    location.href = '/servers.html';
+  }
+}
+
+// ============ ERROR BANNER ============
+function showErrorBanner(lastError, at) {
+  const banner = document.getElementById('error-banner');
+  if (!lastError) { banner.classList.add('hidden'); return; }
+  banner.classList.remove('hidden');
+  document.getElementById('error-content').textContent = lastError;
+  document.getElementById('error-time').textContent = at ? 'Survenu le ' + new Date(at).toLocaleString() : '';
+}
+function hideErrorBanner() { document.getElementById('error-banner').classList.add('hidden'); }
+document.getElementById('btn-dismiss-error').addEventListener('click', hideErrorBanner);
+document.getElementById('btn-go-console').addEventListener('click', () => { hideErrorBanner(); activateTab('console'); });
+
+// ============ DRAFT DEPLOY ============
+document.getElementById('btn-deploy-draft').addEventListener('click', async () => {
+  if (!confirm('Build and deploy this app now?')) return;
+  const btn = document.getElementById('btn-deploy-draft');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Deploying...';
+  try {
+    await api(`/api/deployments/${appId}/deploy`, { method: 'POST' });
+    toast('App deployed!');
+    setTimeout(() => location.reload(), 800);
+  } catch (err) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-rocket mr-2"></i>Deploy now';
+    showErrorBanner(err.message);
+    toast(err.message, true);
+  }
+});
+
+// ============ LIVE STATS ============
+async function refreshLiveStats() {
+  try {
+    const s = await api(`/api/deployments/${appId}/stats/live`);
+    document.getElementById('live-cpu').textContent = s.cpuPercent.toFixed(1) + '%';
+    document.getElementById('live-cpu-bar').style.width = Math.min(100, s.cpuPercent) + '%';
+    const ramPct = s.memoryMax > 0 ? (s.memoryUsed / s.memoryMax) * 100 : 0;
+    document.getElementById('live-ram').textContent = formatBytes(s.memoryUsed) + (s.memoryMax > 0 ? ' / ' + formatBytes(s.memoryMax) : '');
+    document.getElementById('live-ram-bar').style.width = Math.min(100, ramPct) + '%';
+    document.getElementById('live-netrx').textContent = formatBytes(s.netRx);
+    document.getElementById('live-nettx').textContent = formatBytes(s.netTx);
+    document.getElementById('live-pids').textContent = String(s.pids);
+  } catch (_) {}
+}
+
+// ============ CONSOLE ============
+async function initConsole() {
+  const out = document.getElementById('console-output');
+  out.innerHTML = '';
+  appendConsoleLine('[system]', 'Connecting to console...', 'muted');
+  await refreshLiveStats();
+  if (liveStatsTimer) clearInterval(liveStatsTimer);
+  liveStatsTimer = setInterval(refreshLiveStats, 3000);
+  try {
+    const res = await api(`/api/deployments/${appId}/console`);
+    const isRunning = res.status === 'running';
+    document.getElementById('console-status-text').textContent = res.status || 'unknown';
+    document.getElementById('console-status-dot').className = 'w-2 h-2 rounded-full ' + (isRunning ? 'bg-accent' : 'bg-danger');
+
+    // Handle parsed errors
+    if (res.lastParsed) {
+      showErrorBanner(res.lastError, res.finishedAt);
+      // Store for the "Open in editor" button
+      window._lastParsedError = res.lastParsed;
+      const btn = document.getElementById('btn-edit-error');
+      btn.classList.remove('hidden');
+      btn.onclick = () => {
+        const e = window._lastParsedError;
+        if (!e) return;
+        openInEditor(appId, e.file, e.line, e.column || 0, e.message || '');
+      };
+    } else if (res.lastError) {
+      showErrorBanner(res.lastError, res.finishedAt);
+    }
+
+    if (res.logs && res.logs.trim()) {
+      res.logs.split('\n').forEach(line => {
+        if (!line.trim()) return;
+        const isErr = /error|exception|fatal|failed|crash|traceback/i.test(line);
+        appendConsoleLine('', line, isErr ? 'error-line' : '', res.parsedErrors);
+      });
+    } else {
+      appendConsoleLine('[system]', '(no logs yet)', 'muted');
+    }
+  } catch (err) { appendConsoleLine('[error]', err.message, 'muted'); }
+  startConsoleStream();
+}
+
+function startConsoleStream() {
+  if (consoleEventSource) { consoleEventSource.close(); consoleEventSource = null; }
+  try {
+    consoleEventSource = new EventSource(`/api/deployments/${appId}/console/stream`);
+    consoleEventSource.onopen = () => appendConsoleLine('[system]', 'Stream connected.', 'muted');
+    consoleEventSource.onmessage = (e) => {
+      if (!e.data) return;
+      const isErr = /error|exception|fatal|failed|crash|traceback/i.test(e.data);
+      appendConsoleLine('', e.data, isErr ? 'error-line' : '');
+    };
+    consoleEventSource.onerror = () => appendConsoleLine('[system]', 'Stream disconnected — retrying...', 'muted');
+  } catch (err) { appendConsoleLine('[error]', 'Stream error: ' + err.message, 'muted'); }
+}
+
+function appendConsoleLine(tag, text, cls = '', parsedErrors = null) {
+  const out = document.getElementById('console-output');
+  const line = document.createElement('div');
+  line.className = 'console-line ' + cls;
+
+  let inner = '';
+  if (tag) inner += `<span class="console-tag">${escapeHtml(tag)}</span> `;
+  inner += `<span class="flex-1 break-all">${escapeHtml(text)}</span>`;
+
+  // Look for a matching parsed error in this line
+  if (parsedErrors && Array.isArray(parsedErrors)) {
+    const match = parsedErrors.find(pe => text.includes(pe.raw) || text.includes(pe.file));
+    if (match) {
+      inner += `<button class="edit-btn text-xs px-2 py-0.5 rounded-md bg-accent/20 border border-accent/40 text-accent hover:bg-accent hover:text-slate-900 transition whitespace-nowrap ml-2" title="Open in editor">
+        <i class="fas fa-pen-to-square mr-1"></i>Line ${match.line}
+      </button>`;
+    }
+  }
+
+  line.innerHTML = inner;
+
+  const btn = line.querySelector('.edit-btn');
+  if (btn && parsedErrors) {
+    const match = parsedErrors.find(pe => text.includes(pe.raw) || text.includes(pe.file));
+    btn.addEventListener('click', () => {
+      openInEditor(appId, match.file, match.line, match.column || 0, match.message || '');
+    });
+  }
+
+  out.appendChild(line);
+  if (consoleAutoScroll) out.scrollTop = out.scrollHeight;
+}
+
+document.querySelectorAll('[data-power]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!currentApp) return;
+    const action = btn.dataset.power;
+    appendConsoleLine('[system]', `Sending "${action}" to container...`, 'muted');
+    try {
+      await api(`/api/services/${encodeURIComponent(currentApp.container)}/${action}`, { method: 'POST' });
+      toast(`Container ${action} done`);
+      hideErrorBanner();
+      setTimeout(initConsole, 800);
+    } catch (err) { toast(err.message, true); appendConsoleLine('[error]', err.message, 'muted'); }
+  });
+});
+
+async function sendConsoleCommand() {
+  const input = document.getElementById('console-command');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  appendConsoleLine('$', cmd, 'cmd');
+  input.value = '';
+  try {
+    const res = await api(`/api/deployments/${appId}/console/exec`, { method: 'POST', body: JSON.stringify({ command: cmd }) });
+    if (res.output) {
+      res.output.split('\n').forEach(line => {
+        if (!line) return;
+        const isErr = /error|exception|fatal|failed|crash/i.test(line);
+        appendConsoleLine('', line, isErr ? 'error-line' : '');
+      });
+    }
+    if (res.exitCode !== 0 && res.exitCode !== undefined) appendConsoleLine('[exit]', String(res.exitCode), 'muted');
+  } catch (err) { appendConsoleLine('[error]', err.message, 'muted'); }
+}
+
+document.getElementById('console-command').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); sendConsoleCommand(); }
+});
+document.getElementById('btn-console-send').addEventListener('click', sendConsoleCommand);
+document.getElementById('btn-console-clear').addEventListener('click', () => { document.getElementById('console-output').innerHTML = ''; });
+document.getElementById('btn-console-autoscroll').addEventListener('click', (e) => {
+  consoleAutoScroll = !consoleAutoScroll;
+  e.currentTarget.classList.toggle('text-accent', consoleAutoScroll);
+  e.currentTarget.classList.toggle('text-gray-500', !consoleAutoScroll);
+  if (consoleAutoScroll) { const out = document.getElementById('console-output'); out.scrollTop = out.scrollHeight; }
+});
+
+// ============ FILES ============
+async function loadAppFiles(path) {
+  appFilesPath = path || '';
+  selectedFiles.clear();
+  updateSelectionBar();
+  renderAppBreadcrumb();
+  const tbody = document.getElementById('app-files-table');
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const entries = await api(`/api/deployments/${appId}/files?path=${encodeURIComponent(appFilesPath)}`);
+    if (entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Empty folder.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    entries.forEach(entry => {
+      const isArchive = /\.(zip|tar|tar\.gz|tgz)$/i.test(entry.name);
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-3 py-2"><input type="checkbox" class="file-select accent-accent w-auto" data-path="${escapeHtml(entry.path)}"></td>
+        <td class="px-3 py-2">
+          <button class="file-open flex items-center gap-2 text-sm text-gray-200 hover:text-accent transition text-left w-full">
+            <i class="fas ${entry.isDir ? 'fa-folder text-accent' : 'fa-file text-gray-500'}"></i>
+            <span class="truncate">${escapeHtml(entry.name)}</span>
+          </button>
+        </td>
+        <td class="px-3 py-2 text-xs text-gray-500 hidden sm:table-cell">${entry.isDir ? '—' : formatSize(entry.size)}</td>
+        <td class="px-3 py-2 text-xs text-gray-500 hidden md:table-cell">${escapeHtml(entry.modTime)}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap"></td>`;
+      tr.querySelector('.file-open').addEventListener('click', () => {
+        if (entry.isDir) loadAppFiles(entry.path);
+        else openInEditor(appId, entry.path);
+      });
+      const actions = tr.querySelector('td:last-child');
+      if (!entry.isDir) {
+        actions.appendChild(iconBtn('pen', 'Edit in Monaco', () => openInEditor(appId, entry.path)));
+        actions.appendChild(iconBtn('download', 'Download', () => {
+          window.location = `/api/deployments/${appId}/files/download?path=${encodeURIComponent(entry.path)}`;
+        }));
+      }
+      if (isArchive && hasPerm('files.write')) actions.appendChild(iconBtn('file-zipper', 'Extract', () => extractArchive(entry.path)));
+      if (hasPerm('files.write')) {
+        actions.appendChild(iconBtn('i-cursor', 'Rename', () => renameFile(entry.path, entry.name)));
+        actions.appendChild(iconBtn('trash', 'Delete', () => deleteFile(entry.path), true));
+      }
+      tbody.appendChild(tr);
+    });
+    document.querySelectorAll('.file-select').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedFiles.add(cb.dataset.path);
+        else selectedFiles.delete(cb.dataset.path);
+        updateSelectionBar();
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function iconBtn(icon, title, onClick, danger = false) {
+  const b = document.createElement('button');
+  b.className = `text-xs px-2 py-1.5 rounded-md bg-panel2 border transition ml-1 ${danger ? 'border-border text-gray-300 hover:border-danger hover:text-danger' : 'border-border text-gray-300 hover:border-accent hover:text-accent'}`;
+  b.title = title;
+  b.innerHTML = `<i class="fas fa-${icon}"></i>`;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById('file-selection-bar');
+  const count = document.getElementById('file-selection-count');
+  if (selectedFiles.size > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = `${selectedFiles.size} file(s) selected`;
+  } else bar.classList.add('hidden');
+}
+
+document.getElementById('files-select-all').addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  document.querySelectorAll('.file-select').forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedFiles.add(cb.dataset.path);
+    else selectedFiles.delete(cb.dataset.path);
+  });
+  updateSelectionBar();
+});
+
+document.getElementById('btn-sel-clear').addEventListener('click', () => {
+  selectedFiles.clear();
+  document.querySelectorAll('.file-select').forEach(cb => cb.checked = false);
+  document.getElementById('files-select-all').checked = false;
+  updateSelectionBar();
+});
+
+document.getElementById('btn-sel-delete').addEventListener('click', async () => {
+  if (!confirm(`Delete ${selectedFiles.size} item(s)?`)) return;
+  try {
+    await api(`/api/deployments/${appId}/files/delete-many`, { method: 'POST', body: JSON.stringify({ paths: Array.from(selectedFiles) }) });
+    toast('Deleted');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-sel-download').addEventListener('click', () => {
+  if (selectedFiles.size === 1) {
+    const p = Array.from(selectedFiles)[0];
+    window.location = `/api/deployments/${appId}/files/download?path=${encodeURIComponent(p)}`;
+    return;
+  }
+  downloadSelectedAsZip();
+});
+
+document.getElementById('btn-sel-download-zip').addEventListener('click', downloadSelectedAsZip);
+
+function downloadSelectedAsZip() {
+  const paths = Array.from(selectedFiles);
+  if (paths.length === 0) return;
+  fetch(`/api/deployments/${appId}/files/download-zip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ paths }),
+  }).then(async res => {
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentApp.name}-export.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }).catch(err => toast(err.message, true));
+}
+
+document.getElementById('btn-sel-move').addEventListener('click', async () => {
+  const dest = prompt('Move to folder (ex: src/ or .):', appFilesPath || '.');
+  if (dest === null) return;
+  try {
+    const res = await api(`/api/deployments/${appId}/files/move`, {
+      method: 'POST', body: JSON.stringify({ paths: Array.from(selectedFiles), dest }),
+    });
+    if (res.ok === false && res.errors) toast(`Some errors: ${res.errors.join(', ')}`, true);
+    else toast('Moved');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-sel-compress').addEventListener('click', async () => {
+  const name = prompt('Archive name (without extension):', 'archive');
+  if (!name) return;
+  try {
+    const res = await api(`/api/deployments/${appId}/files/compress`, {
+      method: 'POST', body: JSON.stringify({ paths: Array.from(selectedFiles), output: name + '.zip', destDir: appFilesPath }),
+    });
+    toast(`Created ${res.output}`);
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+function renderAppBreadcrumb() {
+  const container = document.getElementById('files-breadcrumb');
+  const parts = appFilesPath.split('/').filter(Boolean);
+  container.innerHTML = '';
+  const root = document.createElement('span');
+  root.className = 'cursor-pointer hover:text-accent transition';
+  root.innerHTML = `<i class="fas fa-home"></i> ${currentApp.name}`;
+  root.addEventListener('click', () => loadAppFiles(''));
+  container.appendChild(root);
+  let acc = '';
+  parts.forEach(p => {
+    acc += '/' + p;
+    container.appendChild(document.createTextNode(' / '));
+    const span = document.createElement('span');
+    span.className = 'cursor-pointer hover:text-accent transition';
+    span.textContent = p;
+    const target = acc;
+    span.addEventListener('click', () => loadAppFiles(target));
+    container.appendChild(span);
+  });
+}
+
+async function deleteFile(relPath) {
+  if (!confirm(`Delete "${relPath}"?`)) return;
+  try {
+    await api(`/api/deployments/${appId}/files?path=${encodeURIComponent(relPath)}`, { method: 'DELETE' });
+    toast('Deleted');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+async function renameFile(relPath, oldName) {
+  const newName = prompt('New name:', oldName);
+  if (!newName || newName === oldName) return;
+  const dir = relPath.includes('/') ? relPath.substring(0, relPath.lastIndexOf('/')) : '';
+  const newPath = dir ? dir + '/' + newName : newName;
+  try {
+    await api(`/api/deployments/${appId}/files/rename`, { method: 'POST', body: JSON.stringify({ from: relPath, to: newPath }) });
+    toast('Renamed');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+async function extractArchive(relPath) {
+  try {
+    toast('Extracting...');
+    await api(`/api/deployments/${appId}/files/extract?path=${encodeURIComponent(relPath)}`, { method: 'POST' });
+    toast('Extracted');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-file-new-file').addEventListener('click', async () => {
+  const name = prompt('File name:');
+  if (!name) return;
+  const fullPath = (appFilesPath ? appFilesPath + '/' : '') + name;
+  try {
+    await api(`/api/deployments/${appId}/files/create?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+    toast('File created');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-file-new-folder').addEventListener('click', async () => {
+  const name = prompt('Folder name:');
+  if (!name) return;
+  const fullPath = (appFilesPath ? appFilesPath + '/' : '') + name;
+  try {
+    await api(`/api/deployments/${appId}/files/mkdir?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+    toast('Folder created');
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('input-file-upload').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f);
+  try {
+    const res = await api(`/api/deployments/${appId}/files/upload?path=${encodeURIComponent(appFilesPath)}`, { method: 'POST', body: fd });
+    toast(`${res.saved.length} file(s) uploaded`);
+    e.target.value = '';
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); e.target.value = ''; }
+});
+
+document.getElementById('input-zip-upload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    toast('Uploading...');
+    await api(`/api/deployments/${appId}/files/upload?path=${encodeURIComponent(appFilesPath)}`, { method: 'POST', body: fd });
+    toast('Extracting...');
+    const archivePath = (appFilesPath ? appFilesPath + '/' : '') + file.name;
+    await api(`/api/deployments/${appId}/files/extract?path=${encodeURIComponent(archivePath)}`, { method: 'POST' });
+    toast('Imported');
+    e.target.value = '';
+    loadAppFiles(appFilesPath);
+  } catch (err) { toast(err.message, true); e.target.value = ''; }
+});
+
+// ============ ENV ============
+let envVars = [];
+
+async function loadEnv() {
+  const tbody = document.getElementById('env-table');
+  tbody.innerHTML = '<tr><td colspan="3" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    envVars = await api(`/api/deployments/${appId}/env`) || [];
+    renderEnvTable();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderEnvTable() {
+  const tbody = document.getElementById('env-table');
+  if (envVars.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-gray-500 py-6">No environment variable yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  envVars.forEach((v, i) => {
+    const isSecret = /SECRET|KEY|PASSWORD|TOKEN|PWD/i.test(v.key);
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-border';
+    tr.innerHTML = `
+      <td class="px-3 py-2"><input class="env-key mono !text-xs" data-idx="${i}" value="${escapeHtml(v.key)}"></td>
+      <td class="px-3 py-2">
+        <div class="flex gap-1">
+          <input class="env-value mono !text-xs flex-1" data-idx="${i}" type="${isSecret ? 'password' : 'text'}" value="${escapeHtml(v.value)}">
+          ${isSecret ? `<button class="env-toggle text-xs px-2 rounded-md bg-panel2 border border-border text-gray-300"><i class="fas fa-eye"></i></button>` : ''}
+        </div>
+      </td>
+      <td class="px-3 py-2 text-right"><button class="env-remove text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition"><i class="fas fa-trash"></i></button></td>`;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll('.env-key').forEach(inp => inp.addEventListener('input', () => { envVars[+inp.dataset.idx].key = inp.value; }));
+  document.querySelectorAll('.env-value').forEach(inp => inp.addEventListener('input', () => { envVars[+inp.dataset.idx].value = inp.value; }));
+  document.querySelectorAll('.env-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = btn.parentElement.querySelector('.env-value');
+      if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+    });
+  });
+  document.querySelectorAll('.env-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      const inputs = row.querySelectorAll('input');
+      const idx = +inputs[0].dataset.idx;
+      envVars.splice(idx, 1);
+      renderEnvTable();
+    });
+  });
+}
+
+document.getElementById('btn-env-add').addEventListener('click', () => { envVars.push({ key: '', value: '' }); renderEnvTable(); });
+
+document.getElementById('btn-env-save').addEventListener('click', async () => {
+  const status = document.getElementById('env-status');
+  status.textContent = 'Saving...';
+  try {
+    const cleaned = envVars.filter(v => v.key.trim() !== '');
+    await api(`/api/deployments/${appId}/env`, { method: 'PUT', body: JSON.stringify({ vars: cleaned }) });
+    status.textContent = 'Saved. Restart the container to apply.';
+    toast('Environment saved');
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (err) { status.textContent = 'Error: ' + err.message; toast(err.message, true); }
+});
+
+// ============ ALLOCATIONS ============
+async function loadAllocations() {
+  const tbody = document.getElementById('alloc-table');
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const allocs = await api(`/api/deployments/${appId}/allocations`) || [];
+    if (allocs.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">No allocation.</td></tr>'; return; }
+    tbody.innerHTML = '';
+    allocs.forEach(a => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-xs"><code>${escapeHtml(a.port)}</code></td>
+        <td class="px-4 py-3 text-sm text-gray-400 hidden sm:table-cell">${escapeHtml(a.label || '—')}</td>
+        <td class="px-4 py-3">${a.primary ? '<span class="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-accent/15 text-accent">Primary</span>' : ''}</td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">${new Date(a.createdAt).toLocaleDateString()}</td>
+        <td class="px-4 py-3 text-right"></td>`;
+      if (!a.primary) {
+        const actions = tr.querySelector('td:last-child');
+        actions.appendChild(iconBtn('trash', 'Remove', () => removeAllocation(a.id), true));
+      }
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function removeAllocation(id) {
+  if (!confirm('Remove this port? The container will restart.')) return;
+  try {
+    await api(`/api/deployments/${appId}/allocations/${id}`, { method: 'DELETE' });
+    toast('Port removed');
+    loadAllocations();
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-alloc-add').addEventListener('click', () => {
+  document.getElementById('alloc-modal').classList.remove('hidden');
+  document.getElementById('alloc-port').value = '';
+  document.getElementById('alloc-label').value = '';
+});
+document.getElementById('btn-alloc-cancel').addEventListener('click', () => document.getElementById('alloc-modal').classList.add('hidden'));
+document.getElementById('btn-alloc-confirm').addEventListener('click', async () => {
+  const port = document.getElementById('alloc-port').value.trim();
+  const label = document.getElementById('alloc-label').value.trim();
+  if (!port) { toast('Port is required', true); return; }
+  try {
+    await api(`/api/deployments/${appId}/allocations`, { method: 'POST', body: JSON.stringify({ port, label }) });
+    toast('Port added');
+    document.getElementById('alloc-modal').classList.add('hidden');
+    loadAllocations();
+  } catch (err) { toast(err.message, true); }
+});
+
+// ============ DOMAINS ============
+function sslBadge(dom) {
+  if (dom.sslStatus === 'active') return '<span class="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-green-500/15 text-green-400"><i class="fas fa-lock mr-1"></i>Active</span>';
+  if (dom.sslStatus === 'error') return `<span class="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-danger/15 text-danger" title="${escapeHtml(dom.sslError || '')}"><i class="fas fa-triangle-exclamation mr-1"></i>Error</span>`;
+  return '<span class="inline-block px-2 py-1 rounded-md text-xs font-semibold bg-panel2 text-gray-400">HTTP only</span>';
+}
+
+async function loadDomains() {
+  const tbody = document.getElementById('domain-table');
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const domains = await api(`/api/deployments/${appId}/domains`) || [];
+    if (domains.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">No domain yet.</td></tr>'; return; }
+    tbody.innerHTML = '';
+    domains.forEach(d => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm"><a href="https://${escapeHtml(d.hostname)}" target="_blank" rel="noopener" class="text-accent hover:underline">${escapeHtml(d.hostname)}</a></td>
+        <td class="px-4 py-3 text-xs hidden sm:table-cell"><code>${escapeHtml(d.targetPort)}</code></td>
+        <td class="px-4 py-3">${sslBadge(d)}</td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden md:table-cell">${new Date(d.createdAt).toLocaleDateString()}</td>
+        <td class="px-4 py-3 text-right"></td>`;
+      const actions = tr.querySelector('td:last-child');
+      if (d.sslStatus !== 'active') {
+        actions.appendChild(iconBtn('lock', 'Request/retry SSL', () => issueDomainSSL(d.id)));
+      }
+      actions.appendChild(iconBtn('trash', 'Remove', () => removeDomain(d.id), true));
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function issueDomainSSL(id) {
+  try {
+    toast('Requesting the certificate — this can take up to a minute...');
+    await api(`/api/deployments/${appId}/domains/${id}/ssl`, { method: 'POST', body: JSON.stringify({}) });
+    toast('SSL certificate active');
+    loadDomains();
+  } catch (err) { toast(err.message, true); loadDomains(); }
+}
+
+async function removeDomain(id) {
+  if (!confirm('Remove this domain? Its Nginx config and certificate will be deleted.')) return;
+  try {
+    await api(`/api/deployments/${appId}/domains/${id}`, { method: 'DELETE' });
+    toast('Domain removed');
+    loadDomains();
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-domain-add').addEventListener('click', () => {
+  document.getElementById('domain-modal').classList.remove('hidden');
+  document.getElementById('domain-hostname').value = '';
+  document.getElementById('domain-port').value = '';
+  document.getElementById('domain-email').value = '';
+  document.getElementById('domain-ssl').checked = true;
+});
+document.getElementById('btn-domain-cancel').addEventListener('click', () => document.getElementById('domain-modal').classList.add('hidden'));
+document.getElementById('btn-domain-confirm').addEventListener('click', async () => {
+  const hostname = document.getElementById('domain-hostname').value.trim();
+  const port = document.getElementById('domain-port').value.trim();
+  const ssl = document.getElementById('domain-ssl').checked;
+  const email = document.getElementById('domain-email').value.trim();
+  if (!hostname) { toast('Domain name is required', true); return; }
+  try {
+    document.getElementById('btn-domain-confirm').disabled = true;
+    const res = await api(`/api/deployments/${appId}/domains`, { method: 'POST', body: JSON.stringify({ hostname, port, ssl, email }) });
+    document.getElementById('domain-modal').classList.add('hidden');
+    if (res && res.warning) { toast(res.warning, true); } else { toast('Domain added'); }
+    loadDomains();
+  } catch (err) { toast(err.message, true); } finally {
+    document.getElementById('btn-domain-confirm').disabled = false;
+  }
+});
+
+// ============ LIMITS ============
+function loadLimits() {
+  const lim = currentApp.limits || {};
+  document.getElementById('limit-cpu').value = lim.cpuQuota || 0;
+  document.getElementById('limit-memory').value = lim.memoryMB || 0;
+  document.getElementById('limit-pids').value = lim.pidsLimit || 0;
+  document.getElementById('limit-disk').value = lim.diskMB || 0;
+}
+
+document.getElementById('btn-limits-save').addEventListener('click', async () => {
+  const status = document.getElementById('limits-status');
+  status.textContent = 'Applying... (container restart)';
+  try {
+    await api(`/api/deployments/${appId}/limits`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        cpuQuota: parseFloat(document.getElementById('limit-cpu').value) || 0,
+        memoryMB: parseInt(document.getElementById('limit-memory').value) || 0,
+        pidsLimit: parseInt(document.getElementById('limit-pids').value) || 0,
+        diskMB: parseInt(document.getElementById('limit-disk').value) || 0,
+      }),
+    });
+    status.textContent = 'Limits applied.';
+    toast('Limits applied');
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (err) { status.textContent = 'Error: ' + err.message; toast(err.message, true); }
+});
+
+// ============ BACKUPS ============
+async function loadBackups() {
+  const tbody = document.getElementById('backups-table');
+  tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const backups = await api(`/api/deployments/${appId}/backups`);
+    if (backups.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6">No backup yet.</td></tr>'; return; }
+    tbody.innerHTML = '';
+    backups.forEach(b => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm text-white">${escapeHtml(b.name)}</td>
+        <td class="px-4 py-3 text-sm text-gray-400">${formatBytes(b.sizeBytes)}</td>
+        <td class="px-4 py-3 text-sm text-gray-500 hidden sm:table-cell">${new Date(b.createdAt).toLocaleString()}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap"></td>`;
+      const actions = tr.querySelector('td:last-child');
+      actions.appendChild(iconBtn('download', 'Download', () => { window.location = `/api/deployments/${appId}/backups/${b.id}/download`; }));
+      actions.appendChild(iconBtn('clock-rotate-left', 'Restore', () => restoreBackup(b.id)));
+      actions.appendChild(iconBtn('trash', 'Delete', () => deleteBackup(b.id), true));
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function restoreBackup(backupId) {
+  if (!confirm('Restore this backup? The container will be stopped and restarted.')) return;
+  try {
+    await api(`/api/deployments/${appId}/backups/${backupId}/restore`, { method: 'POST' });
+    toast('Restore complete');
+    loadBackups();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function deleteBackup(backupId) {
+  if (!confirm('Delete this backup?')) return;
+  try {
+    await api(`/api/deployments/${appId}/backups/${backupId}`, { method: 'DELETE' });
+    toast('Backup deleted');
+    loadBackups();
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-create-backup').addEventListener('click', () => document.getElementById('backup-modal').classList.remove('hidden'));
+document.getElementById('btn-cancel-backup').addEventListener('click', () => document.getElementById('backup-modal').classList.add('hidden'));
+document.getElementById('btn-confirm-backup').addEventListener('click', async () => {
+  const name = document.getElementById('backup-name').value.trim();
+  const notes = document.getElementById('backup-notes').value.trim();
+  try {
+    await api(`/api/deployments/${appId}/backups`, { method: 'POST', body: JSON.stringify({ name, notes }) });
+    toast('Backup created');
+    document.getElementById('backup-modal').classList.add('hidden');
+    document.getElementById('backup-name').value = '';
+    document.getElementById('backup-notes').value = '';
+    loadBackups();
+  } catch (err) { toast(err.message, true); }
+});
+
+// ============ SCHEDULES ============
+async function loadSchedules() {
+  const tbody = document.getElementById('schedules-table');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const schedules = await api(`/api/deployments/${appId}/schedules`);
+    if (schedules.length === 0) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-6">No schedule yet.</td></tr>'; return; }
+    tbody.innerHTML = '';
+    schedules.forEach(sc => {
+      const lastRun = sc.lastRunAt && sc.lastRunAt !== '0001-01-01T00:00:00Z'
+        ? new Date(sc.lastRunAt).toLocaleString() + ' (' + (sc.lastStatus || '—') + ')' : '—';
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm text-white">${escapeHtml(sc.name)}</td>
+        <td class="px-4 py-3 text-xs"><code>${escapeHtml(sc.cronExpr)}</code></td>
+        <td class="px-4 py-3 text-sm text-gray-400 hidden md:table-cell">${escapeHtml(sc.action)}${sc.action === 'command' ? ': ' + escapeHtml(sc.command) : ''}</td>
+        <td class="px-4 py-3 hidden sm:table-cell">${sc.enabled ? '<i class="fas fa-circle-check text-accent"></i>' : '<i class="fas fa-pause text-gray-500"></i>'}</td>
+        <td class="px-4 py-3 text-xs text-gray-500 hidden lg:table-cell">${escapeHtml(lastRun)}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap"></td>`;
+      const actions = tr.querySelector('td:last-child');
+      actions.appendChild(iconBtn('play', 'Run now', () => runScheduleNow(sc.id)));
+      actions.appendChild(iconBtn('pen', 'Edit', () => openScheduleModal(sc)));
+      actions.appendChild(iconBtn('trash', 'Delete', () => deleteSchedule(sc.id), true));
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function runScheduleNow(scheduleId) {
+  try { await api(`/api/deployments/${appId}/schedules/${scheduleId}/run`, { method: 'POST' }); toast('Schedule executed'); loadSchedules(); }
+  catch (err) { toast(err.message, true); }
+}
+
+async function deleteSchedule(scheduleId) {
+  if (!confirm('Delete this schedule?')) return;
+  try { await api(`/api/deployments/${appId}/schedules/${scheduleId}`, { method: 'DELETE' }); toast('Schedule deleted'); loadSchedules(); }
+  catch (err) { toast(err.message, true); }
+}
+
+function openScheduleModal(sc) {
+  document.getElementById('schedule-modal').classList.remove('hidden');
+  document.getElementById('schedule-modal-title').textContent = sc ? 'Edit schedule' : 'Add a schedule';
+  document.getElementById('schedule-id').value = sc ? sc.id : '';
+  document.getElementById('schedule-name').value = sc ? sc.name : '';
+  document.getElementById('schedule-cron').value = sc ? sc.cronExpr : '0 3 * * *';
+  document.getElementById('schedule-action').value = sc ? sc.action : 'backup';
+  document.getElementById('schedule-command').value = sc ? sc.command || '' : '';
+  document.getElementById('schedule-enabled').checked = sc ? sc.enabled : true;
+  updateScheduleCommandVisibility();
+}
+function updateScheduleCommandVisibility() {
+  const action = document.getElementById('schedule-action').value;
+  document.getElementById('schedule-command-row').classList.toggle('hidden', action !== 'command');
+}
+document.getElementById('schedule-action').addEventListener('change', updateScheduleCommandVisibility);
+document.getElementById('btn-create-schedule').addEventListener('click', () => openScheduleModal(null));
+document.getElementById('btn-cancel-schedule').addEventListener('click', () => document.getElementById('schedule-modal').classList.add('hidden'));
+document.getElementById('btn-confirm-schedule').addEventListener('click', async () => {
+  const id = document.getElementById('schedule-id').value;
+  const payload = {
+    name: document.getElementById('schedule-name').value.trim(),
+    cronExpr: document.getElementById('schedule-cron').value.trim(),
+    action: document.getElementById('schedule-action').value,
+    command: document.getElementById('schedule-command').value.trim(),
+    enabled: document.getElementById('schedule-enabled').checked,
+  };
+  try {
+    if (id) await api(`/api/deployments/${appId}/schedules/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    else await api(`/api/deployments/${appId}/schedules`, { method: 'POST', body: JSON.stringify(payload) });
+    toast('Schedule saved');
+    document.getElementById('schedule-modal').classList.add('hidden');
+    loadSchedules();
+  } catch (err) { toast(err.message, true); }
+});
+
+// ============ SETTINGS ============
+function loadAppSettings() {
+  document.getElementById('set-stack').value = currentApp.stack === 'auto' ? 'node' : (currentApp.stack || 'node');
+  document.getElementById('set-node-version').value = currentApp.nodeVersion || '20';
+  document.getElementById('set-python-version').value = currentApp.pythonVersion || '3.12';
+  document.getElementById('set-php-version').value = currentApp.phpVersion || '8.3';
+  document.getElementById('set-host-port').value = currentApp.port || '';
+  updateSettingsVisibility();
+}
+function updateSettingsVisibility() {
+  const stack = document.getElementById('set-stack').value;
+  const nodeStacks = ['node', 'react', 'next', 'astro', 'sveltekit', 'nuxt'];
+  document.querySelector('#tab-settings .version-node').classList.toggle('hidden', !nodeStacks.includes(stack));
+  document.querySelector('#tab-settings .version-python').classList.toggle('hidden', stack !== 'python');
+  document.querySelector('#tab-settings .version-php').classList.toggle('hidden', stack !== 'laravel');
+}
+document.getElementById('set-stack').addEventListener('change', updateSettingsVisibility);
+
+document.getElementById('btn-save-settings').addEventListener('click', async () => {
+  if (!currentApp) return;
+  const status = document.getElementById('settings-status');
+  status.textContent = 'Saving and rebuilding... this can take a minute or two.';
+  const payload = {
+    stack: document.getElementById('set-stack').value,
+    nodeVersion: document.getElementById('set-node-version').value,
+    pythonVersion: document.getElementById('set-python-version').value,
+    phpVersion: document.getElementById('set-php-version').value,
+    hostPort: document.getElementById('set-host-port').value,
+    internalPort: document.getElementById('set-internal-port').value,
+  };
+  try {
+    const res = await api(`/api/deployments/${currentApp.id}/settings`, { method: 'PUT', body: JSON.stringify(payload) });
+    if (res.changed === false) { status.textContent = 'No changes.'; toast('No changes'); return; }
+    status.textContent = 'Settings applied. Reloading...';
+    toast('Settings updated');
+    setTimeout(() => location.reload(), 1200);
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    showErrorBanner(err.message);
+    toast(err.message, true);
+  }
+});
+
+document.getElementById('btn-delete-app').addEventListener('click', async () => {
+  if (!confirm(`Delete "${currentApp.name}"?`)) return;
+  const removeFiles = confirm('Also delete the files from disk?');
+  try {
+    await api(`/api/deployments/${currentApp.id}?removeFiles=${removeFiles}`, { method: 'DELETE' });
+    toast('App deleted');
+    location.href = '/servers.html';
+  } catch (err) { toast(err.message, true); }
+});
+
+// ============ SUBUSERS ============
+async function loadSubusers() {
+  const tbody = document.getElementById('subusers-table');
+  tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+  try {
+    const subs = await api(`/api/deployments/${currentApp.id}/subusers`);
+    if (subs.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6">No collaborator yet.</td></tr>'; return; }
+    tbody.innerHTML = '';
+    subs.forEach(sub => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm text-white">${escapeHtml(sub.username)}</td>
+        <td class="px-4 py-3 text-xs text-gray-400 hidden sm:table-cell">${(sub.permissions || []).map(escapeHtml).join(', ') || '—'}</td>
+        <td class="px-4 py-3 text-xs text-gray-500 hidden md:table-cell">${new Date(sub.createdAt).toLocaleDateString()}</td>
+        <td class="px-4 py-3 text-right"></td>`;
+      const actions = tr.querySelector('td:last-child');
+      actions.appendChild(iconBtn('trash', 'Remove', () => removeSubuser(sub.id), true));
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function removeSubuser(subId) {
+  if (!confirm('Remove this collaborator?')) return;
+  try {
+    await api(`/api/deployments/${currentApp.id}/subusers/${subId}`, { method: 'DELETE' });
+    toast('Removed');
+    loadSubusers();
+  } catch (err) { toast(err.message, true); }
+}
+
+document.getElementById('btn-open-invite').addEventListener('click', () => {
+  document.getElementById('invite-modal').classList.remove('hidden');
+  document.getElementById('invite-link-result').classList.add('hidden');
+});
+document.getElementById('btn-cancel-invite').addEventListener('click', () => document.getElementById('invite-modal').classList.add('hidden'));
+document.getElementById('btn-confirm-invite').addEventListener('click', async () => {
+  const perms = Array.from(document.querySelectorAll('#invite-modal input[type="checkbox"]:checked')).map(i => i.value);
+  if (perms.length === 0) { toast('Select at least one permission', true); return; }
+  const expires = parseInt(document.getElementById('invite-expires').value, 10) || 24;
+  try {
+    const res = await api(`/api/deployments/${currentApp.id}/invite`, {
+      method: 'POST', body: JSON.stringify({ permissions: perms, expiresInHours: expires }),
+    });
+    document.getElementById('invite-link').textContent = res.inviteLink;
+    document.getElementById('invite-link-meta').textContent = `Expires: ${new Date(res.expiresAt).toLocaleString()}`;
+    document.getElementById('invite-link-result').classList.remove('hidden');
+    toast('Invite link generated');
+  } catch (err) { toast(err.message, true); }
+});
+</script>
+</body>
+</html>

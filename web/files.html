@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Files — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937',
+      accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444',
+    },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a0f1a; }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #374151; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Mobile top bar -->
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">Files</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+
+  <aside id="sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8">
+
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl lg:text-2xl font-bold text-white">Files</h1>
+        <div id="files-breadcrumb" class="text-xs font-mono text-gray-500 mt-1"></div>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button id="btn-new-folder" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+          <i class="fas fa-folder-plus mr-1"></i>Folder
+        </button>
+        <button id="btn-new-file" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+          <i class="fas fa-file-circle-plus mr-1"></i>File
+        </button>
+        <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+          <i class="fas fa-upload mr-1"></i>Upload
+          <input type="file" id="input-upload" class="hidden" multiple>
+        </label>
+        <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+          <i class="fas fa-file-zipper mr-1"></i>Import ZIP
+          <input type="file" id="input-zip-upload" accept=".zip,.tar,.tar.gz,.tgz" class="hidden">
+        </label>
+      </div>
+    </div>
+
+    <!-- Selection bar -->
+    <div id="selection-bar" class="hidden bg-accent/10 border border-accent/30 rounded-lg px-3 py-2 mb-3 flex items-center justify-between flex-wrap gap-2">
+      <span class="text-xs text-accent" id="selection-count">0 selected</span>
+      <div class="flex flex-wrap gap-1.5">
+        <button id="btn-sel-download" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download">
+          <i class="fas fa-download"></i>
+        </button>
+        <button id="btn-sel-download-zip" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download as ZIP">
+          <i class="fas fa-file-zipper"></i>
+        </button>
+        <button id="btn-sel-move" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Move">
+          <i class="fas fa-arrows-up-down-left-right"></i>
+        </button>
+        <button id="btn-sel-compress" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Compress">
+          <i class="fas fa-file-archive"></i>
+        </button>
+        <button id="btn-sel-delete" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" title="Delete">
+          <i class="fas fa-trash"></i>
+        </button>
+        <button id="btn-sel-clear" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 transition" title="Clear">
+          <i class="fas fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Files table -->
+    <div class="bg-panel border border-border rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-border">
+              <th class="w-8 px-3 py-3"><input type="checkbox" id="files-select-all" class="accent-accent w-auto"></th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3">Name</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden sm:table-cell">Size</th>
+              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden md:table-cell">Modified</th>
+              <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="files-table">
+            <tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200]"></div>
+
+<script src="/app.js"></script>
+<script>
+// ============ SIDEBAR MOBILE ============
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+
+document.getElementById('btn-menu')?.addEventListener('click', () => {
+  sidebar.classList.remove('hidden');
+  sidebar.classList.remove('-translate-x-full');
+  overlay.classList.remove('hidden');
+});
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => {
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+});
+overlay?.addEventListener('click', () => {
+  sidebar.classList.add('-translate-x-full');
+  overlay.classList.add('hidden');
+});
+
+// ============ STATE ============
+let filesCurrentPath = '';
+let selectedFiles = new Set();
+
+// ============ INIT ============
+(async function() {
+  const me = await requireAuth({ adminOnly: true });
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  renderSidebar('files');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+  loadFiles('');
+})();
+
+// ============ LOAD FILES ============
+async function loadFiles(path) {
+  filesCurrentPath = path || '';
+  selectedFiles.clear();
+  updateSelectionBar();
+  renderBreadcrumb();
+
+  const tbody = document.getElementById('files-table');
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Loading...</td></tr>';
+
+  try {
+    const entries = await api(`/api/files?path=${encodeURIComponent(filesCurrentPath)}`);
+    if (entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">Empty folder.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    entries.forEach(entry => {
+      const isArchive = /\.(zip|tar|tar\.gz|tgz)$/i.test(entry.name);
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-border hover:bg-panel2 transition';
+      tr.innerHTML = `
+        <td class="px-3 py-2.5"><input type="checkbox" class="file-select accent-accent w-auto" data-path="${escapeHtml(entry.path)}"></td>
+        <td class="px-3 py-2.5">
+          <button class="file-open flex items-center gap-2 text-sm text-gray-200 hover:text-accent transition text-left w-full">
+            <i class="fas ${entry.isDir ? 'fa-folder text-accent' : 'fa-file text-gray-500'}"></i>
+            <span class="truncate">${escapeHtml(entry.name)}</span>
+          </button>
+        </td>
+        <td class="px-3 py-2.5 text-xs text-gray-500 hidden sm:table-cell">${entry.isDir ? '—' : formatSize(entry.size)}</td>
+        <td class="px-3 py-2.5 text-xs text-gray-500 hidden md:table-cell">${escapeHtml(entry.modTime)}</td>
+        <td class="px-3 py-2.5 text-right whitespace-nowrap"></td>`;
+
+      // Click on file name
+      tr.querySelector('.file-open').addEventListener('click', () => {
+        if (entry.isDir) {
+          loadFiles(entry.path);
+        } else {
+          // Redirige vers Monaco editor
+          openInEditorPage(entry.path);
+        }
+      });
+
+      // Actions
+      const actions = tr.querySelector('td:last-child');
+      if (!entry.isDir) {
+        actions.appendChild(iconBtn('pen', 'Edit', () => openInEditorPage(entry.path)));
+        actions.appendChild(iconBtn('download', 'Download', () => {
+          window.location = `/api/files/download?path=${encodeURIComponent(entry.path)}`;
+        }));
+      }
+      if (isArchive) {
+        actions.appendChild(iconBtn('file-zipper', 'Extract', () => extractArchive(entry.path)));
+      }
+      actions.appendChild(iconBtn('i-cursor', 'Rename', () => renameFile(entry.path, entry.name)));
+      actions.appendChild(iconBtn('trash', 'Delete', () => deleteFile(entry.path), true));
+
+      tbody.appendChild(tr);
+    });
+
+    document.querySelectorAll('.file-select').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedFiles.add(cb.dataset.path);
+        else selectedFiles.delete(cb.dataset.path);
+        updateSelectionBar();
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ============ EDITOR REDIRECT ============
+// Ouvre edit.html avec le chemin du fichier.
+// Note : cette page fonctionne sans app (files globaux), donc pas d'id d'app.
+// On utilise id=global pour signaler au backend qu'on est dans le file manager global.
+function openInEditorPage(filePath) {
+  // Le file manager global utilise /api/files/content (pas scopé par app).
+  // edit.html supporte les deux cas : si id=global, il utilise /api/files.
+  const params = new URLSearchParams({
+    id: 'global',
+    path: filePath,
+  });
+  location.href = `/edit.html?${params.toString()}`;
+}
+
+// ============ HELPERS ============
+function iconBtn(icon, title, onClick, danger = false) {
+  const b = document.createElement('button');
+  b.className = `text-xs px-2 py-1.5 rounded-md bg-panel2 border transition ml-1 ${danger ? 'border-border text-gray-300 hover:border-danger hover:text-danger' : 'border-border text-gray-300 hover:border-accent hover:text-accent'}`;
+  b.title = title;
+  b.innerHTML = `<i class="fas fa-${icon}"></i>`;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById('selection-bar');
+  const count = document.getElementById('selection-count');
+  if (selectedFiles.size > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = `${selectedFiles.size} file(s) selected`;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function renderBreadcrumb() {
+  const container = document.getElementById('files-breadcrumb');
+  const parts = filesCurrentPath.split('/').filter(Boolean);
+  container.innerHTML = '';
+  const root = document.createElement('span');
+  root.className = 'cursor-pointer hover:text-accent transition';
+  root.innerHTML = '<i class="fas fa-home"></i> root';
+  root.addEventListener('click', () => loadFiles(''));
+  container.appendChild(root);
+  let acc = '';
+  parts.forEach(p => {
+    acc += '/' + p;
+    container.appendChild(document.createTextNode(' / '));
+    const span = document.createElement('span');
+    span.className = 'cursor-pointer hover:text-accent transition';
+    span.textContent = p;
+    const target = acc;
+    span.addEventListener('click', () => loadFiles(target));
+    container.appendChild(span);
+  });
+}
+
+// ============ ACTIONS ============
+document.getElementById('files-select-all').addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  document.querySelectorAll('.file-select').forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedFiles.add(cb.dataset.path);
+    else selectedFiles.delete(cb.dataset.path);
+  });
+  updateSelectionBar();
+});
+
+document.getElementById('btn-sel-clear').addEventListener('click', () => {
+  selectedFiles.clear();
+  document.querySelectorAll('.file-select').forEach(cb => cb.checked = false);
+  document.getElementById('files-select-all').checked = false;
+  updateSelectionBar();
+});
+
+document.getElementById('btn-sel-delete').addEventListener('click', async () => {
+  if (!confirm(`Delete ${selectedFiles.size} item(s)?`)) return;
+  try {
+    await api('/api/files/delete-many', {
+      method: 'POST',
+      body: JSON.stringify({ paths: Array.from(selectedFiles) }),
+    });
+    toast('Deleted');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-sel-download').addEventListener('click', () => {
+  if (selectedFiles.size === 1) {
+    const p = Array.from(selectedFiles)[0];
+    window.location = `/api/files/download?path=${encodeURIComponent(p)}`;
+    return;
+  }
+  downloadSelectedAsZip();
+});
+
+document.getElementById('btn-sel-download-zip').addEventListener('click', downloadSelectedAsZip);
+
+function downloadSelectedAsZip() {
+  const paths = Array.from(selectedFiles);
+  if (paths.length === 0) return;
+  fetch('/api/files/download-zip', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ paths }),
+  }).then(async res => {
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `export-${Date.now()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }).catch(err => toast(err.message, true));
+}
+
+document.getElementById('btn-sel-move').addEventListener('click', async () => {
+  const dest = prompt('Move to folder (ex: /var/www or .):', filesCurrentPath || '.');
+  if (dest === null) return;
+  try {
+    const res = await api('/api/files/move', {
+      method: 'POST',
+      body: JSON.stringify({ paths: Array.from(selectedFiles), dest }),
+    });
+    if (res.ok === false && res.errors) toast(`Some errors: ${res.errors.join(', ')}`, true);
+    else toast('Moved');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-sel-compress').addEventListener('click', async () => {
+  const name = prompt('Archive name (without extension):', 'archive');
+  if (!name) return;
+  try {
+    const res = await api('/api/files/compress', {
+      method: 'POST',
+      body: JSON.stringify({
+        paths: Array.from(selectedFiles),
+        output: name + '.zip',
+        destDir: filesCurrentPath,
+      }),
+    });
+    toast(`Created ${res.output}`);
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+// ============ INDIVIDUAL ACTIONS ============
+async function deleteFile(path) {
+  if (!confirm(`Delete "${path}"?`)) return;
+  try {
+    await api(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+    toast('Deleted');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+async function renameFile(path, oldName) {
+  const newName = prompt('New name:', oldName);
+  if (!newName || newName === oldName) return;
+  const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+  const newPath = dir ? dir + '/' + newName : newName;
+  try {
+    await api('/api/files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ from: path, to: newPath }),
+    });
+    toast('Renamed');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+async function extractArchive(path) {
+  try {
+    toast('Extracting...');
+    await api(`/api/files/extract?path=${encodeURIComponent(path)}`, { method: 'POST' });
+    toast('Extracted');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+}
+
+// ============ UPLOAD ============
+document.getElementById('input-upload').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f);
+  try {
+    const res = await api(`/api/files/upload?path=${encodeURIComponent(filesCurrentPath)}`, {
+      method: 'POST', body: fd,
+    });
+    toast(`${res.saved.length} file(s) uploaded`);
+    e.target.value = '';
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); e.target.value = ''; }
+});
+
+document.getElementById('input-zip-upload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    toast('Uploading...');
+    await api(`/api/files/upload?path=${encodeURIComponent(filesCurrentPath)}`, {
+      method: 'POST', body: fd,
+    });
+    toast('Extracting...');
+    const archivePath = (filesCurrentPath ? filesCurrentPath + '/' : '') + file.name;
+    await api(`/api/files/extract?path=${encodeURIComponent(archivePath)}`, { method: 'POST' });
+    toast('Imported');
+    e.target.value = '';
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); e.target.value = ''; }
+});
+
+// ============ NEW FILE / FOLDER ============
+document.getElementById('btn-new-file').addEventListener('click', async () => {
+  const name = prompt('File name:');
+  if (!name) return;
+  const path = (filesCurrentPath ? filesCurrentPath + '/' : '') + name;
+  try {
+    await api(`/api/files/create?path=${encodeURIComponent(path)}`, { method: 'POST' });
+    toast('File created');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+});
+
+document.getElementById('btn-new-folder').addEventListener('click', async () => {
+  const name = prompt('New folder name:');
+  if (!name) return;
+  const path = (filesCurrentPath ? filesCurrentPath + '/' : '') + name;
+  try {
+    await api(`/api/files/mkdir?path=${encodeURIComponent(path)}`, { method: 'POST' });
+    toast('Folder created');
+    loadFiles(filesCurrentPath);
+  } catch (err) { toast(err.message, true); }
+});
+</script>
+</body>
+</html>
