@@ -80,6 +80,7 @@ func main() {
 	actH := &handlers.ActivityHandlers{Store: st}
 	tokH := &handlers.APITokenHandlers{Store: st}
 	statsH := &handlers.AppStatsHandlers{}
+	ghH := &handlers.GithubHandlers{Store: st, DeployRoot: deployRoot}
 
 	// ---- Scheduler ----
 	runner := func(sc store.Schedule) (string, error) {
@@ -131,6 +132,17 @@ func main() {
 		"GET": tokH.List, "POST": tokH.Create,
 	})))
 	mux.Handle("/api/tokens/", authMw(http.HandlerFunc(tokH.Revoke)))
+
+	// =====================================================================
+	// GitHub (par utilisateur)
+	// =====================================================================
+	mux.Handle("/api/github/status", authMw(http.HandlerFunc(ghH.Status)))
+	mux.Handle("/api/github/token", authMw(methodSplit(map[string]http.HandlerFunc{
+		"POST":   ghH.SetToken,
+		"DELETE": ghH.DeleteToken,
+	})))
+	mux.Handle("/api/github/repos", authMw(http.HandlerFunc(ghH.ListRepos)))
+	mux.Handle("/api/github/import", authMw(http.HandlerFunc(ghH.Import)))
 
 	// =====================================================================
 	// Activity
@@ -204,17 +216,14 @@ func main() {
 		trimmed := strings.TrimPrefix(path, "/api/deployments/")
 
 		switch {
-		// --- Détails / Delete ---
 		case r.Method == "GET" && !strings.Contains(trimmed, "/"):
 			deployH.Get(w, r)
 		case r.Method == "DELETE" && !strings.Contains(trimmed, "/"):
 			permSettings(http.HandlerFunc(deployH.Delete)).ServeHTTP(w, r)
 
-		// --- Deploy un draft ---
 		case r.Method == "POST" && strings.HasSuffix(path, "/deploy"):
 			permSettings(http.HandlerFunc(deployH.DeployDraft)).ServeHTTP(w, r)
 
-		// --- Actions ---
 		case r.Method == "POST" && strings.HasSuffix(path, "/redeploy"):
 			permSettings(http.HandlerFunc(deployH.Redeploy)).ServeHTTP(w, r)
 		case r.Method == "PUT" && strings.HasSuffix(path, "/settings"):
@@ -222,7 +231,6 @@ func main() {
 		case r.Method == "PUT" && strings.HasSuffix(path, "/limits"):
 			permSettings(http.HandlerFunc(deployH.UpdateLimits)).ServeHTTP(w, r)
 
-		// --- Subusers ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/subusers"):
 			permSettings(http.HandlerFunc(subH.List)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/invite"):
@@ -234,7 +242,6 @@ func main() {
 		case r.Method == "DELETE" && strings.Contains(path, "/subusers/"):
 			permSettings(http.HandlerFunc(subH.Remove)).ServeHTTP(w, r)
 
-		// --- Console ---
 		case r.Method == "POST" && strings.HasSuffix(path, "/console/exec"):
 			permConsole(http.HandlerFunc(deployH.ConsoleExec)).ServeHTTP(w, r)
 		case r.Method == "GET" && strings.HasSuffix(path, "/console/stream"):
@@ -242,17 +249,14 @@ func main() {
 		case r.Method == "GET" && strings.HasSuffix(path, "/console"):
 			permConsole(http.HandlerFunc(deployH.ConsoleInfo)).ServeHTTP(w, r)
 
-		// --- Live stats ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/stats/live"):
 			permConsole(http.HandlerFunc(statsH.Live)).ServeHTTP(w, r)
 
-		// --- Env vars ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/env"):
 			permSettings(http.HandlerFunc(envH.List)).ServeHTTP(w, r)
 		case r.Method == "PUT" && strings.HasSuffix(path, "/env"):
 			permSettings(http.HandlerFunc(envH.Set)).ServeHTTP(w, r)
 
-		// --- Allocations ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/allocations"):
 			permSettings(http.HandlerFunc(allocH.List)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/allocations"):
@@ -260,7 +264,6 @@ func main() {
 		case r.Method == "DELETE" && strings.Contains(path, "/allocations/"):
 			permSettings(http.HandlerFunc(allocH.Delete)).ServeHTTP(w, r)
 
-		// --- Domains & SSL ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/domains"):
 			permSettings(http.HandlerFunc(domH.List)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/domains"):
@@ -270,7 +273,6 @@ func main() {
 		case r.Method == "DELETE" && strings.Contains(path, "/domains/"):
 			permSettings(http.HandlerFunc(domH.Delete)).ServeHTTP(w, r)
 
-		// --- Backups ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/backups"):
 			permBackup(http.HandlerFunc(backupH.List)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/backups"):
@@ -282,7 +284,6 @@ func main() {
 		case r.Method == "DELETE" && strings.Contains(path, "/backups/"):
 			permBackup(http.HandlerFunc(backupH.Delete)).ServeHTTP(w, r)
 
-		// --- Schedules ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/schedules"):
 			permSettings(http.HandlerFunc(schedH.List)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/schedules"):
@@ -294,7 +295,6 @@ func main() {
 		case r.Method == "DELETE" && strings.Contains(path, "/schedules/"):
 			permSettings(http.HandlerFunc(schedH.Delete)).ServeHTTP(w, r)
 
-		// --- Files (scoped by app) ---
 		case r.Method == "GET" && strings.HasSuffix(path, "/files/content"):
 			permFilesRead(http.HandlerFunc(fileH.AppReadContent)).ServeHTTP(w, r)
 		case r.Method == "PUT" && strings.HasSuffix(path, "/files/content"):
