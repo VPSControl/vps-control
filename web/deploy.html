@@ -31,6 +31,29 @@ tailwind.config = {
   label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
   .hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
   .hint code { background: #0a0f1a; border: 1px solid #1f2937; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; color: #22c55e; }
+  .mode-tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+  .mode-tab {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #9ca3af;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: all .15s;
+    cursor: pointer;
+  }
+  .mode-tab.active {
+    color: #22c55e;
+    background: rgba(34,197,94,.08);
+    border-color: rgba(34,197,94,.3);
+  }
+  .mode-tab:hover:not(.active) { color: #e5e7eb; }
+  .repo-list { max-height: 280px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 8px; background: #0a0f1a; }
+  .repo-item { padding: 10px 12px; border-bottom: 1px solid #1f2937; cursor: pointer; transition: background .1s; }
+  .repo-item:last-child { border-bottom: 0; }
+  .repo-item:hover { background: #1a2332; }
+  .repo-item.selected { background: rgba(34,197,94,.1); border-left: 3px solid #22c55e; padding-left: 9px; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -67,13 +90,19 @@ tailwind.config = {
     <div class="bg-accent/10 border border-accent/30 rounded-xl p-4 mb-6 flex items-start gap-3">
       <i class="fas fa-circle-info text-accent mt-0.5"></i>
       <div class="text-sm text-accent">
-        <strong>Import ZIP</strong> : les fichiers sont extraits dans le dossier de l'app, tu es redirigé vers la page de configuration, puis tu peux déployer quand tu veux. <strong>GitHub</strong> : déploiement direct.
+        <strong>Import ZIP</strong> : les fichiers sont extraits dans le dossier de l'app, tu es redirigé vers la page de configuration, puis tu peux déployer quand tu veux. <strong>GitHub public</strong> : déploiement direct. <strong>Mes repos GitHub</strong> : pour les repos privés ou d'organisation (nécessite un token connecté dans <a href="/tokens.html" class="underline">API Tokens → GitHub</a>).
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- GitHub -->
-      <div class="bg-panel border border-border rounded-xl p-5">
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="git">GitHub (public)</button>
+      <button class="mode-tab" data-mode="github-private">Mes repos GitHub</button>
+      <button class="mode-tab" data-mode="upload">Import ZIP</button>
+    </div>
+
+    <!-- ============ MODE : GitHub public ============ -->
+    <section id="mode-git" class="mode-content">
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
         <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fab fa-github text-gray-400"></i>From a public GitHub repo</h2>
         <form id="form-deploy-git">
           <label>Application name</label>
@@ -98,7 +127,7 @@ tailwind.config = {
 
           <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
           <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
-          <p class="hint">If your project lives in a subfolder of the repo (e.g. <code>backend/</code> or <code>frontend/</code>), specify it here. Leave empty to auto-detect the closest folder containing <code>package.json</code>, <code>composer.json</code>, etc.</p>
+          <p class="hint">If your project lives in a subfolder of the repo, specify it here. Leave empty to auto-detect.</p>
 
           <div class="version-row version-node">
             <label>Node.js version</label>
@@ -139,15 +168,120 @@ tailwind.config = {
           </button>
         </form>
       </div>
+    </section>
 
-      <!-- ZIP -->
-      <div class="bg-panel border border-border rounded-xl p-5">
+    <!-- ============ MODE : Mes repos GitHub (privés) ============ -->
+    <section id="mode-github-private" class="mode-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Liste des repos -->
+        <div class="bg-panel border border-border rounded-xl p-5">
+          <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
+            <i class="fab fa-github text-gray-400"></i>Your repositories
+            <button id="gh-refresh-repos" class="ml-auto text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+              <i class="fas fa-rotate"></i>
+            </button>
+          </h2>
+
+          <div id="gh-not-connected" class="hidden text-sm text-gray-400 p-4 rounded-lg bg-bg border border-border">
+            <p class="mb-3"><i class="fas fa-info-circle text-accent mr-2"></i>GitHub account not connected.</p>
+            <a href="/tokens.html" class="inline-block px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+              <i class="fab fa-github mr-1"></i>Connect GitHub
+            </a>
+          </div>
+
+          <div id="gh-connected-repos" class="hidden">
+            <input id="gh-repo-search" placeholder="Search repositories..." class="mb-3">
+            <div id="gh-repo-list" class="repo-list">
+              <div class="text-center text-gray-500 text-xs py-4">Loading...</div>
+            </div>
+            <p class="hint mt-2">Only repos where you have push access are shown.</p>
+          </div>
+        </div>
+
+        <!-- Formulaire de déploiement -->
+        <div class="bg-panel border border-border rounded-xl p-5">
+          <h2 class="font-semibold text-white mb-4">Deployment</h2>
+          <div id="gh-deploy-empty" class="text-sm text-gray-500 py-6 text-center">
+            <i class="fas fa-arrow-left text-2xl text-gray-600 mb-3"></i>
+            <p>Select a repository on the left to configure the deployment.</p>
+          </div>
+
+          <form id="form-deploy-github" class="hidden">
+            <input type="hidden" name="repoFullName">
+            <input type="hidden" name="cloneUrl">
+
+            <div class="bg-bg border border-border rounded-lg p-3 mb-4">
+              <p class="text-xs text-gray-500">Selected repository</p>
+              <p class="text-sm font-semibold text-white truncate" id="gh-selected-repo">—</p>
+            </div>
+
+            <label>Application name</label>
+            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+            <p class="hint">Lowercase letters, digits, dashes. Must be unique.</p>
+
+            <label>Stack</label>
+            <select name="stack" class="stack-select">
+              <option value="auto">Auto-detect</option>
+              <option value="laravel">Laravel / PHP</option>
+              <option value="node">Node.js</option>
+              <option value="react">React SPA (Vite, CRA)</option>
+              <option value="next">Next.js</option>
+              <option value="astro">Astro</option>
+              <option value="sveltekit">SvelteKit</option>
+              <option value="nuxt">Nuxt</option>
+              <option value="python">Python</option>
+              <option value="static">Static site</option>
+            </select>
+
+            <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
+            <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
+
+            <div class="version-row version-node">
+              <label>Node.js version</label>
+              <select name="nodeVersion">
+                <option value="18">Node 18</option>
+                <option value="20" selected>Node 20 (LTS)</option>
+                <option value="22">Node 22</option>
+              </select>
+            </div>
+            <div class="version-row version-python hidden">
+              <label>Python version</label>
+              <select name="pythonVersion">
+                <option value="3.10">Python 3.10</option>
+                <option value="3.11">Python 3.11</option>
+                <option value="3.12" selected>Python 3.12</option>
+              </select>
+            </div>
+            <div class="version-row version-php hidden">
+              <label>PHP version</label>
+              <select name="phpVersion">
+                <option value="8.1">PHP 8.1</option>
+                <option value="8.2">PHP 8.2</option>
+                <option value="8.3" selected>PHP 8.3</option>
+              </select>
+            </div>
+
+            <label>Port exposed on the VPS</label>
+            <input name="port" placeholder="auto (8080, 8081...)">
+            <p class="hint">Leave empty to auto-assign.</p>
+
+            <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+              <i class="fab fa-github mr-2"></i>Clone & Deploy
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODE : Import ZIP ============ -->
+    <section id="mode-upload" class="mode-content hidden">
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
         <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fas fa-file-zipper text-gray-400"></i>From a .zip file</h2>
         <form id="form-deploy-upload">
           <label>Application name</label>
           <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
 
-          <label>Project .zip archive</label>
+          <label>Project .zip archive (max 30 MB)</label>
           <input type="file" name="archive" accept=".zip" required>
 
           <label>Port exposed on the VPS</label>
@@ -160,7 +294,7 @@ tailwind.config = {
           <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
 
           <p class="text-xs text-gray-500 mt-3 leading-relaxed">
-            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer. Le sous-dossier de l'app (si le ZIP contient un dossier racine, ex. <code class="text-accent">my-project-main/</code>) sera détecté automatiquement.
+            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer. Le sous-dossier de l'app sera détecté automatiquement.
           </p>
 
           <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
@@ -168,7 +302,7 @@ tailwind.config = {
           </button>
         </form>
       </div>
-    </div>
+    </section>
 
     <p id="deploy-status" class="text-sm text-gray-500 mt-6"></p>
   </main>
@@ -202,6 +336,9 @@ function buildNav(active, isAdmin) {
   ).join('');
 }
 
+let allRepos = [];
+let selectedRepo = null;
+
 (async function() {
   const me = await requireAuth({ adminOnly: true });
   if (!me) return;
@@ -212,7 +349,36 @@ function buildNav(active, isAdmin) {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.href = '/index.html';
   });
+
+  // Tabs
+  document.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.mode-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('mode-' + btn.dataset.mode).classList.remove('hidden');
+      if (btn.dataset.mode === 'github-private') loadGithubRepos();
+    });
+  });
+
+  // Suggest-port buttons et version visibility
+  ['#form-deploy-git', '#form-deploy-github', '#form-deploy-upload'].forEach(sel => {
+    const form = document.querySelector(sel);
+    if (!form) return;
+    const stackSel = form.querySelector('.stack-select');
+    if (stackSel) {
+      stackSel.addEventListener('change', () => updateVersionVisibility(stackSel));
+      updateVersionVisibility(stackSel);
+    }
+    const btn = form.querySelector('.suggest-port-btn');
+    if (btn) btn.addEventListener('click', () => suggestPort(form));
+  });
 })();
+
+// ---- Onglets mode ----
+document.querySelectorAll('.mode-tab').forEach(btn => {
+  // déjà attaché ci-dessus
+});
 
 function updateVersionVisibility(select) {
   const form = select.closest('form');
@@ -254,22 +420,92 @@ async function suggestPort(form) {
   }
 }
 
-['#form-deploy-git','#form-deploy-upload'].forEach(sel => {
-  const form = document.querySelector(sel);
-  if (!form) return;
-  const stackSel = form.querySelector('.stack-select');
-  if (stackSel) {
-    stackSel.addEventListener('change', () => updateVersionVisibility(stackSel));
-    updateVersionVisibility(stackSel);
-  }
-  const btn = form.querySelector('.suggest-port-btn');
-  if (btn) btn.addEventListener('click', () => suggestPort(form));
-});
+// ============ GitHub repos ============
+async function loadGithubRepos() {
+  const notConnected = document.getElementById('gh-not-connected');
+  const connected = document.getElementById('gh-connected-repos');
+  try {
+    const status = await api('/api/github/status');
+    if (!status.connected) {
+      notConnected.classList.remove('hidden');
+      connected.classList.add('hidden');
+      return;
+    }
+    notConnected.classList.add('hidden');
+    connected.classList.remove('hidden');
 
+    const list = document.getElementById('gh-repo-list');
+    list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading repositories...</div>';
+
+    const repos = await api('/api/github/repos');
+    allRepos = repos || [];
+    renderRepoList();
+  } catch (err) {
+    toast(err.message, true);
+    document.getElementById('gh-repo-list').innerHTML =
+      `<div class="text-center text-danger text-xs py-4">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRepoList() {
+  const list = document.getElementById('gh-repo-list');
+  const q = (document.getElementById('gh-repo-search').value || '').toLowerCase().trim();
+  const filtered = q === '' ? allRepos : allRepos.filter(r =>
+    (r.full_name || '').toLowerCase().includes(q) ||
+    (r.description || '').toLowerCase().includes(q)
+  );
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4">No repository found.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  filtered.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'repo-item' + (selectedRepo && selectedRepo.full_name === r.full_name ? ' selected' : '');
+    div.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-white truncate">
+            ${r.private ? '<i class="fas fa-lock text-amber-400 mr-1 text-xs"></i>' : '<i class="fas fa-book text-gray-500 mr-1 text-xs"></i>'}
+            ${escapeHtml(r.full_name)}
+          </div>
+          ${r.description ? `<div class="text-xs text-gray-500 truncate mt-0.5">${escapeHtml(r.description)}</div>` : ''}
+        </div>
+        <div class="text-[10px] text-gray-600 whitespace-nowrap">${r.default_branch || 'main'}</div>
+      </div>`;
+    div.addEventListener('click', () => selectRepo(r));
+    list.appendChild(div);
+  });
+}
+
+function selectRepo(r) {
+  selectedRepo = r;
+  document.querySelectorAll('.repo-item').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.repo-item').forEach(el => {
+    if (el.textContent.includes(r.full_name)) el.classList.add('selected');
+  });
+
+  document.getElementById('gh-deploy-empty').classList.add('hidden');
+  const form = document.getElementById('form-deploy-github');
+  form.classList.remove('hidden');
+  form.querySelector('input[name="repoFullName"]').value = r.full_name;
+  form.querySelector('input[name="cloneUrl"]').value = r.clone_url;
+
+  // Pré-remplir le nom avec le nom du repo (slugifié)
+  const defaultName = r.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  form.querySelector('input[name="name"]').value = defaultName;
+
+  document.getElementById('gh-selected-repo').textContent = r.full_name;
+}
+
+document.getElementById('gh-refresh-repos')?.addEventListener('click', loadGithubRepos);
+document.getElementById('gh-repo-search')?.addEventListener('input', renderRepoList);
+
+// ============ Form : GitHub public ============
 document.getElementById('form-deploy-git').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.target));
-  document.getElementById('deploy-status').textContent = 'Deploying (clone + docker build)... this can take a minute or two.';
+  document.getElementById('deploy-status').textContent = 'Cloning & building... this can take a minute or two.';
   try {
     const dep = await api('/api/deploy/git', { method:'POST', body: JSON.stringify(fd) });
     toast(`App "${fd.name}" deployed`);
@@ -280,6 +516,22 @@ document.getElementById('form-deploy-git').addEventListener('submit', async (e) 
   }
 });
 
+// ============ Form : GitHub privé ============
+document.getElementById('form-deploy-github').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(e.target));
+  document.getElementById('deploy-status').textContent = 'Cloning (authenticated) & building...';
+  try {
+    const dep = await api('/api/github/import', { method:'POST', body: JSON.stringify(fd) });
+    toast(`App "${fd.name}" deployed`);
+    location.href = `/server.html?id=${dep.id}&tab=console`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+});
+
+// ============ Form : Upload ZIP ============
 document.getElementById('form-deploy-upload').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
