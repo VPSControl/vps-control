@@ -166,8 +166,8 @@ function buildNav(active, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
     { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
     { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
-    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
     { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
     { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
     { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
@@ -258,14 +258,12 @@ async function openDeleteModal(u) {
   document.getElementById('del-confirm-check').checked = false;
   document.getElementById('btn-confirm-delete-user').disabled = true;
 
-  // Vider le preview en attendant.
   ['del-servers','del-apps','del-backups','del-domains','del-disk'].forEach(id => {
     document.getElementById(id).textContent = '…';
   });
 
   document.getElementById('delete-user-modal').classList.remove('hidden');
 
-  // Charger le preview.
   try {
     const preview = await api(`/api/admin/users/${u.id}/preview`);
     document.getElementById('del-servers').textContent = preview.serversCount ?? 0;
