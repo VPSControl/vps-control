@@ -104,7 +104,6 @@ if [ -z "$DOMAIN" ]; then
 fi
 
 if [ -n "$DOMAIN" ]; then
-  # Nettoyer le domaine : retirer http://, https://, slashes, espaces
   DOMAIN="$(echo "$DOMAIN" | sed -E 's~^https?://~~; s~/.*$~~; s~[[:space:]]~~g')"
   ok "Domaine : $DOMAIN"
 else
@@ -283,12 +282,15 @@ if [ -n "$DOMAIN" ]; then
   # =====================================================================
   log "Configuration Nginx pour ${DOMAIN}..."
 
-  # Config HTTP uniquement (Certbot ajoutera le SSL)
+  # Config HTTP uniquement (Certbot ajoutera le SSL).
+  # client_max_body_size 30m : autorise les uploads ZIP jusqu'à 30 MB.
   cat > /etc/nginx/sites-available/vpscontrol.conf <<NGINX
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
+
+    client_max_body_size 30m;
 
     location / {
         proxy_pass http://127.0.0.1:8090;
@@ -334,6 +336,14 @@ NGINX
 
     if certbot --nginx -d "$DOMAIN" --redirect --agree-tos --register-unsafely-without-email </dev/tty; then
       ok "Certificat Let's Encrypt obtenu pour ${DOMAIN}"
+      # Certbot réécrit la conf : on s'assure que client_max_body_size
+      # est toujours présent (le plugin --nginx conserve les directives
+      # du bloc server, mais on vérifie par sécurité).
+      if ! grep -q "client_max_body_size" /etc/nginx/sites-available/vpscontrol.conf; then
+        warn "client_max_body_size manquant après Certbot, ajout automatique..."
+        sed -i '/server_name/a\    client_max_body_size 30m;' /etc/nginx/sites-available/vpscontrol.conf
+        nginx -t && systemctl reload nginx
+      fi
     else
       warn "Certbot n'a pas terminé automatiquement."
       warn "Relance manuellement : sudo certbot --nginx -d ${DOMAIN}"
@@ -375,11 +385,14 @@ else
     exit 1
   fi
 
+  # client_max_body_size 30m : autorise les uploads ZIP jusqu'à 30 MB.
   cat > /etc/nginx/sites-available/vpscontrol.conf <<NGINX
 server {
     listen ${PORT} ssl;
     listen [::]:${PORT} ssl;
     server_name _;
+
+    client_max_body_size 30m;
 
     ssl_certificate     /etc/vpscontrol/ssl/selfsigned.crt;
     ssl_certificate_key /etc/vpscontrol/ssl/selfsigned.key;
@@ -506,6 +519,18 @@ else
   fi
 fi
 
+# 4. Vérifier que la limite d'upload Nginx est bien en place
+if grep -q "client_max_body_size" /etc/nginx/sites-available/vpscontrol.conf; then
+  LIMIT_LINE="$(grep "client_max_body_size" /etc/nginx/sites-available/vpscontrol.conf | head -1 | tr -s ' ')"
+  ok "Limite d'upload Nginx :${LIMIT_LINE}"
+else
+  warn "client_max_body_size introuvable dans la conf Nginx !"
+  warn "Les uploads ZIP seront limités à 1 MB (défaut Nginx)."
+  warn "Ajoute manuellement dans /etc/nginx/sites-available/vpscontrol.conf :"
+  warn "  client_max_body_size 30m;"
+  warn "Puis : sudo nginx -t && sudo systemctl reload nginx"
+fi
+
 # =====================================================================
 # Résumé final
 # =====================================================================
@@ -537,6 +562,8 @@ if [ "${AUTO_UPDATE,,}" != "y" ] && [ "${AUTO_UPDATE,,}" != "yes" ]; then
   printf '                 sudo bash %s/scripts/update.sh\n' "$PROJECT_DIR"
 fi
 
+printf '\n'
+printf '  %sLimites upload%s : ZIP 30 MB (Nginx + panel)\n' "$BOLD" "$NC"
 printf '\n'
 printf '  %sCommandes utiles%s\n' "$BOLD" "$NC"
 printf '    systemctl status vpscontrol\n'
