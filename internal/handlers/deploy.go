@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -49,7 +50,247 @@ func normalizePHPVersion(v string) string {
 	return "8.3"
 }
 
-// ---- Dockerfiles ----
+// =====================================================================
+// Détection de la racine de l'app (sous-dossier contenant le projet)
+// =====================================================================
+
+// excludedDirs : dossiers qu'on ne parcourt jamais pendant la recherche.
+// Sans ça, on tomberait sur des package.json dans node_modules ou des
+// exemples dans vendor/.
+var excludedDirs = map[string]bool{
+	"node_modules": true,
+	".git":         true,
+	"vendor":       true,
+	"__pycache__":  true,
+	"dist":         true,
+	"build":        true,
+	".next":        true,
+	"target":       true,
+	"venv":         true,
+	".venv":        true,
+	".cache":       true,
+	".idea":        true,
+	".vscode":      true,
+}
+
+// markerFile : un fichier qui indique « ici commence un projet ».
+// priority : plus petit = plus prioritaire dans un même dossier.
+// hasScriptStart : true si le fichier contient un script de lancement
+// (utilisé pour départager deux package.json à profondeur égale).
+type markerFile struct {
+	name     string
+	priority int
+}
+
+// Ordre de priorité dans un même dossier :
+//  1. Dockerfile (l'utilisateur a déjà décidé comment builder)
+//  2. package.json (Node)
+//  3. composer.json (PHP/Laravel)
+//  4. requirements.txt / pyproject.toml (Python)
+//  5. manage.py / app.py (Python, moins explicite)
+//  6. go.mod
+var knownMarkers = []markerFile{
+	{"Dockerfile", 1},
+	{"package.json", 2},
+	{"composer.json", 3},
+	{"requirements.txt", 4},
+	{"pyproject.toml", 4},
+	{"manage.py", 5},
+	{"app.py", 5},
+	{"go.mod", 6},
+}
+
+// candidate : un dossier trouvé pendant la recherche BFS.
+type candidate struct {
+	subdir   string // chemin relatif depuis root ("" = racine)
+	depth    int    // profondeur (0 = racine)
+	priority int    // priorité du marqueur trouvé
+	liftable bool   // true si le projet a un vrai point d'entrée (scripts.start, artisan…)
+}
+
+// hasPackageStartScript : true si le package.json contient scripts.start.
+func hasPackageStartScript(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(b, &pkg); err != nil {
+		return false
+	}
+	_, ok := pkg.Scripts["start"]
+	return ok
+}
+
+// hasLaravelArtisan : true si artisan est à côté du composer.json (vrai Laravel).
+func hasLaravelArtisan(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "artisan"))
+	return err == nil
+}
+
+// isLiftable : vérifie que le marqueur trouvé correspond à un vrai
+// point d'entrée lançable (utilisé pour départager à profondeur égale).
+func isLiftable(dir, marker string) bool {
+	switch marker {
+	case "package.json":
+		return hasPackageStartScript(dir)
+	case "composer.json":
+		return hasLaravelArtisan(dir)
+	case "requirements.txt", "pyproject.toml", "manage.py", "app.py":
+		return true
+	case "Dockerfile", "go.mod":
+		return true
+	}
+	return false
+}
+
+// findAppRoot : cherche, en parcours en largeur (BFS), le premier dossier
+// qui contient un marqueur de projet. Retourne le chemin relatif depuis root
+// ("" si c'est la racine elle-même), ou "" si rien trouvé.
+//
+// Règles de sélection :
+//  1. le plus proche de la racine gagne (BFS)
+//  2. à profondeur égale, on préfère un projet "liftable" (scripts.start…)
+//  3. à profondeur et liftable égaux, on prend l'ordre alphabétique (BFS trié)
+func findAppRoot(root string) string {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+
+	type queueItem struct {
+		abs   string
+		rel   string
+		depth int
+	}
+
+	queue := []queueItem{{abs: rootAbs, rel: "", depth: 0}}
+	var best *candidate
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		// Si on a déjà un candidat de profondeur inférieure, on peut
+		// s'arrêter : BFS garantit qu'on ne trouvera rien de mieux.
+		if best != nil && cur.depth > best.depth {
+			break
+		}
+
+		entries, err := os.ReadDir(cur.abs)
+		if err != nil {
+			continue
+		}
+
+		// Trier les entrées pour un résultat déterministe.
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Name() < entries[j].Name()
+		})
+
+		// 1) Chercher un marqueur dans CE dossier.
+		for _, m := range knownMarkers {
+			for _, e := range entries {
+				if e.IsDir() || e.Name() != m.name {
+					continue
+				}
+				c := candidate{
+					subdir:   cur.rel,
+					depth:    cur.depth,
+					priority: m.priority,
+					liftable: isLiftable(cur.abs, m.name),
+				}
+				if best == nil || betterCandidate(c, *best) {
+					best = &c
+				}
+				break // un seul marqueur par priorité par dossier
+			}
+		}
+
+		// 2) Empiler les sous-dossiers (hors exclusions).
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if excludedDirs[name] {
+				continue
+			}
+			if strings.HasPrefix(name, ".") && name != ".env" {
+				// ignorer les dossiers cachés (sauf cas particuliers futurs)
+				continue
+			}
+			childAbs := filepath.Join(cur.abs, name)
+			childRel := name
+			if cur.rel != "" {
+				childRel = filepath.Join(cur.rel, name)
+			}
+			queue = append(queue, queueItem{
+				abs:   childAbs,
+				rel:   childRel,
+				depth: cur.depth + 1,
+			})
+		}
+	}
+
+	if best == nil {
+		return ""
+	}
+	return filepath.ToSlash(best.subdir)
+}
+
+// betterCandidate : retourne true si a est préférable à b.
+//  1. profondeur plus faible
+//  2. liftable avant non-liftable
+//  3. priorité de marqueur plus faible (Dockerfile < package.json < …)
+//  4. ordre alphabétique du chemin
+func betterCandidate(a, b candidate) bool {
+	if a.depth != b.depth {
+		return a.depth < b.depth
+	}
+	if a.liftable != b.liftable {
+		return a.liftable
+	}
+	if a.priority != b.priority {
+		return a.priority < b.priority
+	}
+	return a.subdir < b.subdir
+}
+
+// appRoot : retourne le chemin absolu de la racine effective de l'app
+// (dep.Path + dep.AppSubdir), en toute sécurité (pas d'évasion possible).
+func appRoot(dep store.Deployment) string {
+	if dep.AppSubdir == "" {
+		return dep.Path
+	}
+	clean := filepath.Clean("/" + dep.AppSubdir)
+	return filepath.Join(dep.Path, clean)
+}
+
+// resolveSubdirInput : valide et nettoie un AppSubdir fourni par
+// l'utilisateur (formulaire Settings). Refuse les chemins absolus
+// et les tentatives d'évasion.
+func resolveSubdirInput(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" || input == "." || input == "/" {
+		return "", nil
+	}
+	input = strings.ReplaceAll(input, "\\", "/")
+	clean := filepath.Clean("/" + input)
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "" || clean == "." {
+		return "", nil
+	}
+	if strings.HasPrefix(clean, "..") {
+		return "", errors.New("subdirectory cannot escape the app root")
+	}
+	return filepath.ToSlash(clean), nil
+}
+
+// =====================================================================
+// Dockerfiles
+// =====================================================================
 
 func dockerfileLaravelPHP(phpVersion string) string {
 	return fmt.Sprintf(`FROM php:%s-apache
@@ -195,7 +436,9 @@ CMD ["node", ".output/server/index.mjs"]
 `, nodeVersion, port, port)
 }
 
-// ---- Détection de stack ----
+// =====================================================================
+// Détection de stack
+// =====================================================================
 
 func detectStack(dir string) string {
 	has := func(name string) bool {
@@ -302,7 +545,9 @@ func reactBuildDir(dir string) string {
 	return "dist"
 }
 
-// ---- Build options ----
+// =====================================================================
+// Build options
+// =====================================================================
 
 type buildOptions struct {
 	Stack         string
@@ -313,6 +558,8 @@ type buildOptions struct {
 	InternalPort  string
 }
 
+// writeDockerfileIfMissing écrit un Dockerfile dans dir s'il n'en existe pas déjà.
+// dir est la racine effective de l'app (déjà résolue avec AppSubdir).
 func writeDockerfileIfMissing(dir string, opts buildOptions) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
@@ -361,7 +608,9 @@ func containerPortForStack(stack string) string {
 	}
 }
 
-// ---- SuggestPort ----
+// =====================================================================
+// SuggestPort
+// =====================================================================
 
 func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 	stack := r.URL.Query().Get("stack")
@@ -374,10 +623,16 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			defer os.RemoveAll(tmpDir)
 			if _, err := runCommand(30*time.Second, "git", "clone", "--depth", "1", repoURL, tmpDir); err == nil {
-				if stack == "" || stack == "auto" {
-					stack = detectStack(tmpDir)
+				// Résoudre la racine de l'app dans le clone
+				sub := findAppRoot(tmpDir)
+				appDir := tmpDir
+				if sub != "" {
+					appDir = filepath.Join(tmpDir, sub)
 				}
-				det := detectPort(tmpDir, stack)
+				if stack == "" || stack == "auto" {
+					stack = detectStack(appDir)
+				}
+				det := detectPort(appDir, stack)
 				internal = det.Port
 				source = det.Source
 			}
@@ -405,7 +660,9 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ---- DeployGit (build + start direct) ----
+// =====================================================================
+// DeployGit (build + start direct)
+// =====================================================================
 
 type deployGitRequest struct {
 	Name          string `json:"name"`
@@ -415,6 +672,7 @@ type deployGitRequest struct {
 	NodeVersion   string `json:"nodeVersion"`
 	PythonVersion string `json:"pythonVersion"`
 	PHPVersion    string `json:"phpVersion"`
+	AppSubdir     string `json:"appSubdir"` // optionnel, sinon auto-détection
 }
 
 func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +725,25 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Port = p
 	}
+
+	// Résoudre la racine de l'app (sous-dossier contenant package.json/composer.json/…)
+	subdir, err := resolveSubdirInput(req.AppSubdir)
+	if err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if subdir == "" {
+		subdir = findAppRoot(targetDir)
+	}
+	effectiveDir := targetDir
+	if subdir != "" {
+		effectiveDir = filepath.Join(targetDir, subdir)
+	}
+	if _, err := os.Stat(effectiveDir); err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, "app subdirectory not found: "+subdir)
+		return
+	}
+
 	opts := buildOptions{
 		Stack:         req.Stack,
 		NodeVersion:   normalizeNodeVersion(req.NodeVersion),
@@ -474,10 +751,12 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		PHPVersion:    normalizePHPVersion(req.PHPVersion),
 		HostPort:      req.Port,
 	}
-	h.buildAndRun(w, req.Name, targetDir, opts, "git", req.RepoURL, user.ID)
+	h.buildAndRun(w, req.Name, targetDir, effectiveDir, subdir, opts, "git", req.RepoURL, user.ID)
 }
 
-// ---- DeployUpload → DRAFT (extrait seulement, ne build pas) ----
+// =====================================================================
+// DeployUpload → DRAFT (extrait seulement, ne build pas)
+// =====================================================================
 
 func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 	user, _ := middleware.UserFromContext(r.Context())
@@ -549,6 +828,9 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		port = p
 	}
 
+	// Résoudre la racine de l'app dans le zip extrait.
+	subdir := findAppRoot(targetDir)
+
 	// Créer un Deployment en mode draft : PAS de build, PAS de start
 	dep := store.Deployment{
 		ID:          randomID(),
@@ -557,6 +839,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		SourceType:  "upload",
 		SourceRef:   header.Filename,
 		Path:        targetDir,
+		AppSubdir:   subdir,
 		Port:        port,
 		Container:   "vpscontrol-" + name,
 		OwnerID:     user.ID,
@@ -578,13 +861,15 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		ActorName: user.Username,
 		Action:    "deploy.draft",
 		Target:    name,
-		Details:   map[string]interface{}{"source": "zip", "file": header.Filename},
+		Details:   map[string]interface{}{"source": "zip", "file": header.Filename, "appSubdir": subdir},
 	})
 
 	middleware.JSON(w, http.StatusCreated, dep)
 }
 
-// ---- DeployDraft : build + start un draft existant ----
+// =====================================================================
+// DeployDraft : build + start un draft existant
+// =====================================================================
 
 func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 	user, _ := middleware.UserFromContext(r.Context())
@@ -594,12 +879,22 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Racine effective (AppSubdir résolu à l'import, ou re-détecté si vide).
+	if dep.AppSubdir == "" {
+		dep.AppSubdir = findAppRoot(dep.Path)
+	}
+	effDir := appRoot(dep)
+	if _, err := os.Stat(effDir); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, "app root not found: "+effDir)
+		return
+	}
+
 	// Détection auto du stack
-	stack := detectStack(dep.Path)
+	stack := detectStack(effDir)
 	dep.Stack = stack
 
 	// Port interne
-	internalPort := detectPort(dep.Path, stack).Port
+	internalPort := detectPort(effDir, stack).Port
 	if internalPort == "" {
 		internalPort = containerPortForStack(stack)
 	}
@@ -613,9 +908,9 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		HostPort:      dep.Port,
 		InternalPort:  internalPort,
 	}
-	dockerfilePath := filepath.Join(dep.Path, "Dockerfile")
+	dockerfilePath := filepath.Join(effDir, "Dockerfile")
 	_ = os.Remove(dockerfilePath)
-	if err := writeDockerfileIfMissing(dep.Path, opts); err != nil {
+	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "failed to write Dockerfile: "+err.Error())
 		return
 	}
@@ -625,9 +920,9 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 	dep.LastError = ""
 	_ = h.Store.UpdateDeployment(dep)
 
-	// Build
+	// Build (depuis la racine effective)
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
@@ -662,22 +957,24 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		ActorName: user.Username,
 		Action:    "deploy.start",
 		Target:    dep.Name,
-		Details:   map[string]interface{}{"stack": stack, "port": dep.Port},
+		Details:   map[string]interface{}{"stack": stack, "port": dep.Port, "appSubdir": dep.AppSubdir},
 	})
 
 	middleware.JSON(w, http.StatusOK, dep)
 }
 
-// ---- buildAndRun (utilisé par DeployGit uniquement) ----
+// =====================================================================
+// buildAndRun (utilisé par DeployGit uniquement)
+// =====================================================================
 
-func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
+func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, effectiveDir, appSubdir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
 	stack := opts.Stack
 	if stack == "" || stack == "auto" {
-		stack = detectStack(targetDir)
+		stack = detectStack(effectiveDir)
 	}
 	opts.Stack = stack
 
-	det := detectPort(targetDir, stack)
+	det := detectPort(effectiveDir, stack)
 	if opts.InternalPort == "" {
 		opts.InternalPort = det.Port
 	}
@@ -685,7 +982,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir stri
 		opts.InternalPort = containerPortForStack(stack)
 	}
 
-	if err := writeDockerfileIfMissing(targetDir, opts); err != nil {
+	if err := writeDockerfileIfMissing(effectiveDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -699,6 +996,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir stri
 		SourceType:    sourceType,
 		SourceRef:     sourceRef,
 		Path:          targetDir,
+		AppSubdir:     appSubdir,
 		Port:          opts.HostPort,
 		Container:     containerName,
 		NodeVersion:   opts.NodeVersion,
@@ -712,7 +1010,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir stri
 		CreatedAt: time.Now(),
 	}
 
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, targetDir)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effectiveDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
@@ -741,7 +1039,9 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir stri
 	middleware.JSON(w, http.StatusCreated, dep)
 }
 
-// ---- List / Get / Delete ----
+// =====================================================================
+// List / Get / Delete
+// =====================================================================
 
 func (h *DeployHandlers) List(w http.ResponseWriter, r *http.Request) {
 	user, _ := middleware.UserFromContext(r.Context())
@@ -821,7 +1121,9 @@ func (h *DeployHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// ---- Redeploy ----
+// =====================================================================
+// Redeploy
+// =====================================================================
 
 func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 	dep, ok := middleware.DeploymentFromContext(r.Context())
@@ -837,13 +1139,38 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	internalPort := detectPort(dep.Path, dep.Stack).Port
+	// Re-résoudre la racine si nécessaire (utile après un git pull qui
+	// aurait déplacé les fichiers, ou si AppSubdir est vide).
+	if dep.AppSubdir == "" {
+		dep.AppSubdir = findAppRoot(dep.Path)
+	}
+	effDir := appRoot(dep)
+	if _, err := os.Stat(effDir); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, "app root not found: "+effDir)
+		return
+	}
+
+	internalPort := detectPort(effDir, dep.Stack).Port
 	if internalPort == "" {
 		internalPort = containerPortForStack(dep.Stack)
 	}
 
+	// Régénérer le Dockerfile s'il a été supprimé (mais pas s'il existe déjà)
+	opts := buildOptions{
+		Stack:         dep.Stack,
+		NodeVersion:   normalizeNodeVersion(dep.NodeVersion),
+		PythonVersion: normalizePythonVersion(dep.PythonVersion),
+		PHPVersion:    normalizePHPVersion(dep.PHPVersion),
+		HostPort:      dep.Port,
+		InternalPort:  internalPort,
+	}
+	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
+		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("build failed:\n" + out)
@@ -871,7 +1198,9 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// ---- UpdateSettings ----
+// =====================================================================
+// UpdateSettings
+// =====================================================================
 
 type updateSettingsRequest struct {
 	Stack         string `json:"stack"`
@@ -880,6 +1209,7 @@ type updateSettingsRequest struct {
 	PHPVersion    string `json:"phpVersion"`
 	HostPort      string `json:"hostPort"`
 	InternalPort  string `json:"internalPort"`
+	AppSubdir     string `json:"appSubdir"` // vide = racine, "auto" = re-détecter
 }
 
 func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -953,9 +1283,40 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 		changed = true
 	}
 
+	// AppSubdir : "auto" = re-détecter, "" = racine, sinon valeur utilisateur
+	newAppSubdir := dep.AppSubdir
+	if req.AppSubdir == "auto" {
+		newAppSubdir = findAppRoot(dep.Path)
+		if newAppSubdir != dep.AppSubdir {
+			changed = true
+		}
+	} else if req.AppSubdir != "" || dep.AppSubdir != "" {
+		subdir, err := resolveSubdirInput(req.AppSubdir)
+		if err != nil {
+			middleware.JSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if subdir != dep.AppSubdir {
+			newAppSubdir = subdir
+			changed = true
+		}
+	}
+	// Vérifier que le sous-dossier existe
+	if newAppSubdir != "" {
+		full := filepath.Join(dep.Path, newAppSubdir)
+		if _, err := os.Stat(full); err != nil {
+			middleware.JSONError(w, http.StatusBadRequest, "app subdirectory not found: "+newAppSubdir)
+			return
+		}
+	}
+
 	newInternalPort := req.InternalPort
+	effDirForDetect := dep.Path
+	if newAppSubdir != "" {
+		effDirForDetect = filepath.Join(dep.Path, newAppSubdir)
+	}
 	if newInternalPort == "" {
-		det := detectPort(dep.Path, newStack)
+		det := detectPort(effDirForDetect, newStack)
 		newInternalPort = det.Port
 		if newInternalPort == "" {
 			newInternalPort = containerPortForStack(newStack)
@@ -975,12 +1336,14 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 	dep.PythonVersion = newPythonVersion
 	dep.PHPVersion = newPHPVersion
 	dep.Port = newHostPort
+	dep.AppSubdir = newAppSubdir
 
 	if err := h.Store.UpdateDeployment(dep); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	effDir := appRoot(dep)
 	opts := buildOptions{
 		Stack:         newStack,
 		NodeVersion:   newNodeVersion,
@@ -989,15 +1352,15 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 		HostPort:      newHostPort,
 		InternalPort:  newInternalPort,
 	}
-	dockerfilePath := filepath.Join(dep.Path, "Dockerfile")
+	dockerfilePath := filepath.Join(effDir, "Dockerfile")
 	_ = os.Remove(dockerfilePath)
-	if err := writeDockerfileIfMissing(dep.Path, opts); err != nil {
+	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "failed to regenerate Dockerfile: "+err.Error())
 		return
 	}
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, dep.Path)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
@@ -1029,7 +1392,9 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// ---- UpdateLimits ----
+// =====================================================================
+// UpdateLimits
+// =====================================================================
 
 type updateLimitsRequest struct {
 	CPUQuota  float64 `json:"cpuQuota"`
@@ -1074,7 +1439,8 @@ func (h *DeployHandlers) UpdateLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	internalPort := detectPort(dep.Path, dep.Stack).Port
+	effDir := appRoot(dep)
+	internalPort := detectPort(effDir, dep.Stack).Port
 	if internalPort == "" {
 		internalPort = containerPortForStack(dep.Stack)
 	}
@@ -1088,7 +1454,9 @@ func (h *DeployHandlers) UpdateLimits(w http.ResponseWriter, r *http.Request) {
 	middleware.JSON(w, http.StatusOK, dep.Limits)
 }
 
-// ---- Console ----
+// =====================================================================
+// Console
+// =====================================================================
 
 func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
 	dep, ok := middleware.DeploymentFromContext(r.Context())
@@ -1243,6 +1611,10 @@ func (h *DeployHandlers) ConsoleExec(w http.ResponseWriter, r *http.Request) {
 		"exitCode": exitCode,
 	})
 }
+
+// =====================================================================
+// Helpers
+// =====================================================================
 
 func unzip(src, dest string) error {
 	r, err := zip.OpenReader(src)
