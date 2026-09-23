@@ -175,7 +175,6 @@ func main() {
 	}))))
 	mux.Handle("/api/users/", authMw(adminMw(http.HandlerFunc(userH.Delete))))
 
-	// L4 : endpoints admin avec preview + cascade propre.
 	mux.Handle("/api/admin/users/", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
 		"GET":    userH.Preview,
 		"DELETE": userH.Delete,
@@ -202,7 +201,12 @@ func main() {
 	mux.Handle("/api/files/compress", authMw(adminMw(http.HandlerFunc(fileH.Compress))))
 
 	// =====================================================================
-	// Admin — docker services
+	// Admin — docker services (page globale /services.html)
+	//
+	// Attention : ces routes acceptent n'importe quel nom de conteneur
+	// (elles sont utilisées par la page admin "Docker Services" qui liste
+	// TOUS les conteneurs du VPS). Pour les opérations power scopées sur
+	// une app, utiliser /api/deployments/{id}/power/* ci-dessous.
 	// =====================================================================
 	mux.Handle("/api/services", authMw(adminMw(http.HandlerFunc(svcH.List))))
 	mux.Handle("/api/services/", authMw(adminMw(http.HandlerFunc(serviceDispatch(svcH)))))
@@ -225,12 +229,7 @@ func main() {
 	mux.Handle("/api/system/webhook/regenerate", authMw(adminMw(http.HandlerFunc(sysH.RegenerateWebhookSecret))))
 
 	// =====================================================================
-	// Deployments — création
-	//
-	// Accessible à TOUT utilisateur authentifié. L'isolation est garantie
-	// en aval par resolveServerID() (refuse si le serveur n'appartient pas
-	// à l'appelant) et checkServerQuota() (refuse si quota disque ou
-	// maxApps dépassé).
+	// Deployments — création (accessible à tout utilisateur authentifié)
 	// =====================================================================
 	mux.Handle("/api/deploy/git", authMw(http.HandlerFunc(deployH.DeployGit)))
 	mux.Handle("/api/deploy/upload", authMw(http.HandlerFunc(deployH.DeployUpload)))
@@ -252,6 +251,16 @@ func main() {
 
 		case r.Method == "POST" && strings.HasSuffix(path, "/deploy"):
 			permSettings(http.HandlerFunc(deployH.DeployDraft)).ServeHTTP(w, r)
+
+		// ---- Power actions scopées sur l'app (user + admin) ----
+		case r.Method == "POST" && strings.HasSuffix(path, "/power/start"):
+			permConsole(http.HandlerFunc(deployH.PowerStart)).ServeHTTP(w, r)
+		case r.Method == "POST" && strings.HasSuffix(path, "/power/stop"):
+			permConsole(http.HandlerFunc(deployH.PowerStop)).ServeHTTP(w, r)
+		case r.Method == "POST" && strings.HasSuffix(path, "/power/restart"):
+			permConsole(http.HandlerFunc(deployH.PowerRestart)).ServeHTTP(w, r)
+		case r.Method == "POST" && strings.HasSuffix(path, "/power/kill"):
+			permConsole(http.HandlerFunc(deployH.PowerKill)).ServeHTTP(w, r)
 
 		case r.Method == "POST" && strings.HasSuffix(path, "/redeploy"):
 			permSettings(http.HandlerFunc(deployH.Redeploy)).ServeHTTP(w, r)
