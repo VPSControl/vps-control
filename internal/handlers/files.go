@@ -426,7 +426,8 @@ func (h *FileHandlers) DownloadZip(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-const maxUploadSize = 500 * 1024 * 1024
+// Note : maxUploadSize est défini dans deploy.go, partagé par tout le package handlers.
+// Limite actuelle : 30 MB.
 
 func (h *FileHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
@@ -440,7 +441,7 @@ func (h *FileHandlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
 		middleware.JSONError(w, http.StatusBadRequest, "upload too large or invalid")
 		return
 	}
@@ -847,7 +848,7 @@ func (h *FileHandlers) AppUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	if err := r.ParseMultipartForm(4 << 20); err != nil {
 		middleware.JSONError(w, http.StatusBadRequest, "upload too large or invalid")
 		return
 	}
@@ -970,8 +971,7 @@ func (h *FileHandlers) AppRename(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := os.Stat(toFull); err == nil {
 		middleware.JSONError(w, http.StatusConflict, "destination already exists")
-		return
-	}
+		return	}
 	if err := os.MkdirAll(filepath.Dir(toFull), 0o755); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1056,7 +1056,6 @@ func (h *FileHandlers) AppFindFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Essai direct (chemin relatif exact)
 	direct, err := h.resolveApp(dep.Path, name)
 	if err == nil {
 		if _, err := os.Stat(direct); err == nil {
@@ -1068,7 +1067,6 @@ func (h *FileHandlers) AppFindFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Recherche récursive par nom de base
 	appRoot, _ := filepath.Abs(dep.Path)
 	baseName := filepath.Base(name)
 	var found []string
@@ -1078,8 +1076,8 @@ func (h *FileHandlers) AppFindFile(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		if info.IsDir() {
-			name := info.Name()
-			if name == "node_modules" || name == ".git" || name == "vendor" || name == "__pycache__" {
+			n := info.Name()
+			if n == "node_modules" || n == ".git" || n == "vendor" || n == "__pycache__" {
 				return filepath.SkipDir
 			}
 			return nil
