@@ -81,6 +81,7 @@ func main() {
 	tokH := &handlers.APITokenHandlers{Store: st}
 	statsH := &handlers.AppStatsHandlers{}
 	ghH := &handlers.GithubHandlers{Store: st, DeployRoot: deployRoot}
+	srvH := &handlers.ServerHandlers{Store: st}
 
 	// ---- Scheduler ----
 	runner := func(sc store.Schedule) (string, error) {
@@ -143,6 +144,23 @@ func main() {
 	})))
 	mux.Handle("/api/github/repos", authMw(http.HandlerFunc(ghH.ListRepos)))
 	mux.Handle("/api/github/import", authMw(http.HandlerFunc(ghH.Import)))
+
+	// =====================================================================
+	// Servers — user (ses propres serveurs)
+	// =====================================================================
+	mux.Handle("/api/servers/mine", authMw(http.HandlerFunc(srvH.Mine)))
+
+	// =====================================================================
+	// Servers — admin (tous les serveurs)
+	// =====================================================================
+	mux.Handle("/api/admin/servers", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
+		"GET":  srvH.ListAll,
+		"POST": srvH.Create,
+	}))))
+	mux.Handle("/api/admin/servers/", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
+		"PUT":    srvH.Update,
+		"DELETE": srvH.Delete,
+	}))))
 
 	// =====================================================================
 	// Activity
