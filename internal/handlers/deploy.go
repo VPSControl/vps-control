@@ -57,9 +57,6 @@ func normalizePHPVersion(v string) string {
 // Détection de la racine de l'app (sous-dossier contenant le projet)
 // =====================================================================
 
-// excludedDirs : dossiers qu'on ne parcourt jamais pendant la recherche.
-// Sans ça, on tomberait sur des package.json dans node_modules ou des
-// exemples dans vendor/.
 var excludedDirs = map[string]bool{
 	"node_modules": true,
 	".git":         true,
@@ -76,20 +73,11 @@ var excludedDirs = map[string]bool{
 	".vscode":      true,
 }
 
-// markerFile : un fichier qui indique « ici commence un projet ».
-// priority : plus petit = plus prioritaire dans un même dossier.
 type markerFile struct {
 	name     string
 	priority int
 }
 
-// Ordre de priorité dans un même dossier :
-//  1. Dockerfile (l'utilisateur a déjà décidé comment builder)
-//  2. package.json (Node)
-//  3. composer.json (PHP/Laravel)
-//  4. requirements.txt / pyproject.toml (Python)
-//  5. manage.py / app.py (Python, moins explicite)
-//  6. go.mod
 var knownMarkers = []markerFile{
 	{"Dockerfile", 1},
 	{"package.json", 2},
@@ -101,15 +89,13 @@ var knownMarkers = []markerFile{
 	{"go.mod", 6},
 }
 
-// candidate : un dossier trouvé pendant la recherche BFS.
 type candidate struct {
-	subdir   string // chemin relatif depuis root ("" = racine)
-	depth    int    // profondeur (0 = racine)
-	priority int    // priorité du marqueur trouvé
-	liftable bool   // true si le projet a un vrai point d'entrée (scripts.start, artisan…)
+	subdir   string
+	depth    int
+	priority int
+	liftable bool
 }
 
-// hasPackageStartScript : true si le package.json contient scripts.start.
 func hasPackageStartScript(dir string) bool {
 	b, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil {
@@ -125,14 +111,11 @@ func hasPackageStartScript(dir string) bool {
 	return ok
 }
 
-// hasLaravelArtisan : true si artisan est à côté du composer.json (vrai Laravel).
 func hasLaravelArtisan(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "artisan"))
 	return err == nil
 }
 
-// isLiftable : vérifie que le marqueur trouvé correspond à un vrai
-// point d'entrée lançable (utilisé pour départager à profondeur égale).
 func isLiftable(dir, marker string) bool {
 	switch marker {
 	case "package.json":
@@ -147,9 +130,6 @@ func isLiftable(dir, marker string) bool {
 	return false
 }
 
-// findAppRoot : cherche, en parcours en largeur (BFS), le premier dossier
-// qui contient un marqueur de projet. Retourne le chemin relatif depuis root
-// ("" si c'est la racine elle-même), ou "" si rien trouvé.
 func findAppRoot(root string) string {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
@@ -243,8 +223,6 @@ func betterCandidate(a, b candidate) bool {
 	return a.subdir < b.subdir
 }
 
-// appRoot : retourne le chemin absolu de la racine effective de l'app
-// (dep.Path + dep.AppSubdir), en toute sécurité.
 func appRoot(dep store.Deployment) string {
 	if dep.AppSubdir == "" {
 		return dep.Path
@@ -253,8 +231,6 @@ func appRoot(dep store.Deployment) string {
 	return filepath.Join(dep.Path, clean)
 }
 
-// resolveSubdirInput : valide et nettoie un AppSubdir fourni par
-// l'utilisateur (formulaire Settings).
 func resolveSubdirInput(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" || input == "." || input == "/" {
@@ -542,8 +518,6 @@ type buildOptions struct {
 	InternalPort  string
 }
 
-// writeDockerfileIfMissing écrit un Dockerfile dans dir s'il n'en existe pas déjà.
-// dir est la racine effective de l'app (déjà résolue avec AppSubdir).
 func writeDockerfileIfMissing(dir string, opts buildOptions) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
@@ -644,7 +618,7 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// DeployGit (build + start direct)
+// DeployGit
 // =====================================================================
 
 type deployGitRequest struct {
@@ -737,7 +711,7 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// DeployUpload → DRAFT (extrait seulement, ne build pas)
+// DeployUpload → DRAFT
 // =====================================================================
 
 func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
@@ -848,7 +822,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// DeployDraft : build + start un draft existant
+// DeployDraft
 // =====================================================================
 
 func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
@@ -936,7 +910,7 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// buildAndRun (utilisé par DeployGit uniquement)
+// buildAndRun
 // =====================================================================
 
 func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, effectiveDir, appSubdir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
@@ -1420,7 +1394,7 @@ func (h *DeployHandlers) UpdateLimits(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// Console
+// Console — ne renvoie des logs que si le conteneur tourne.
 // =====================================================================
 
 func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
@@ -1451,15 +1425,21 @@ func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
 		finishedAt = parts[3]
 	}
 
-	logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
-	logs := logsOut
-	if logs == "" {
-		logs = "(no logs yet)"
+	// On ne charge les logs QUE si le conteneur tourne.
+	// Sinon la console reste vide côté frontend.
+	logs := ""
+	if status == "running" {
+		logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
+		logs = logsOut
 	}
 
+	// Si le conteneur a crashé, on stocke quand même les logs dans
+	// LastError pour le banner d'erreur (mais on ne les renvoie PAS
+	// dans le champ logs → la console reste vide).
 	if status == "exited" && exitCode != 0 {
+		logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
 		dep.Status = "error"
-		dep.LastError = truncateError(logs)
+		dep.LastError = truncateError(logsOut)
 		dep.LastErrorAt = time.Now()
 		_ = h.Store.UpdateDeployment(dep)
 	}
@@ -1494,6 +1474,15 @@ func (h *DeployHandlers) ConsoleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Si le conteneur ne tourne pas, on ferme le stream immédiatement
+	// (aucun log ne sera produit de toute façon).
+	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
+		"--format", "{{.State.Status}}", dep.Container)
+	if strings.TrimSpace(statusOut) != "running" {
+		flusher.Flush()
+		return
+	}
 
 	ctx := r.Context()
 	cmd, stdout, err := runStreamCommand(ctx, "docker", "logs", "-f", "--tail", "50", dep.Container)
