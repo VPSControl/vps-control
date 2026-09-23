@@ -97,6 +97,7 @@ type Deployment struct {
 	SourceType    string       `json:"sourceType"`
 	SourceRef     string       `json:"sourceRef"`
 	Path          string       `json:"path"`
+	AppSubdir     string       `json:"appSubdir,omitempty"` // sous-dossier contenant le projet (vide = racine)
 	Port          string       `json:"port"`
 	Container     string       `json:"container"`
 	NodeVersion   string       `json:"nodeVersion,omitempty"`
