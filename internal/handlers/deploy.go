@@ -31,7 +31,6 @@ var allowedNodeVersions = map[string]bool{"18": true, "20": true, "22": true}
 var allowedPythonVersions = map[string]bool{"3.10": true, "3.11": true, "3.12": true}
 var allowedPHPVersions = map[string]bool{"8.1": true, "8.2": true, "8.3": true}
 
-// Limite d'upload pour les ZIP de déploiement (30 MB).
 const maxUploadSize = 30 * 1024 * 1024
 
 func normalizeNodeVersion(v string) string {
@@ -54,7 +53,7 @@ func normalizePHPVersion(v string) string {
 }
 
 // =====================================================================
-// Détection de la racine de l'app (sous-dossier contenant le projet)
+// Détection de la racine de l'app
 // =====================================================================
 
 var excludedDirs = map[string]bool{
@@ -78,14 +77,6 @@ type markerFile struct {
 	priority int
 }
 
-// Ordre de priorité dans un même dossier :
-//  1. Dockerfile (l'utilisateur a déjà décidé comment builder)
-//  2. package.json (Node)
-//  3. composer.json (PHP/Laravel)
-//  4. requirements.txt / pyproject.toml (Python)
-//  5. manage.py / app.py (Python, moins explicite)
-//  6. go.mod
-//  7. index.html (site statique — dernier recours, mais détecté quand même)
 var knownMarkers = []markerFile{
 	{"Dockerfile", 1},
 	{"package.json", 2},
@@ -636,15 +627,16 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 
 type deployGitRequest struct {
-	Name            string `json:"name"`
-	RepoURL         string `json:"repoUrl"`
-	Stack           string `json:"stack"`
-	Port            string `json:"port"`
-	NodeVersion     string `json:"nodeVersion"`
-	PythonVersion   string `json:"pythonVersion"`
-	PHPVersion      string `json:"phpVersion"`
-	AppSubdir       string `json:"appSubdir"`
-	UseGithubToken  bool   `json:"useGithubToken"` // si true, injecte le PAT GitHub de l'utilisateur
+	Name           string `json:"name"`
+	ServerID       string `json:"serverId"` // ← L3 : obligatoire
+	RepoURL        string `json:"repoUrl"`
+	Stack          string `json:"stack"`
+	Port           string `json:"port"`
+	NodeVersion    string `json:"nodeVersion"`
+	PythonVersion  string `json:"pythonVersion"`
+	PHPVersion     string `json:"phpVersion"`
+	AppSubdir      string `json:"appSubdir"`
+	UseGithubToken bool   `json:"useGithubToken"`
 }
 
 func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
@@ -663,6 +655,19 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "missing repository URL")
 		return
 	}
+
+	// ---- L3 : valider le serveur cible ----
+	sh := &ServerHandlers{Store: h.Store}
+	serverID, err := sh.resolveServerID(user, req.ServerID)
+	if err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if ok, msg := sh.checkServerQuota(serverID); !ok {
+		middleware.JSONError(w, http.StatusConflict, msg)
+		return
+	}
+
 	autoPort := req.Port == "" || req.Port == "auto"
 	if !autoPort {
 		if _, err := strconv.Atoi(req.Port); err != nil {
@@ -685,8 +690,6 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Si UseGithubToken est demandé, on récupère le PAT de l'utilisateur.
-	// Sinon on clone en public (URL telle quelle).
 	cloneURL := req.RepoURL
 	cleanURL := req.RepoURL
 	var ghToken string
@@ -717,8 +720,6 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+truncateError(safeOut))
 		return
 	}
-
-	// Nettoyer le remote pour ne pas laisser le token dans .git/config
 	if req.UseGithubToken {
 		_, _ = runCommand(10*time.Second, "git", "-C", targetDir, "remote", "set-url", "origin",
 			"https://"+cleanURL)
@@ -760,7 +761,7 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 	if req.UseGithubToken {
 		_ = h.Store.TouchGithubToken(user.ID)
 	}
-	h.buildAndRun(w, req.Name, targetDir, effectiveDir, subdir, opts, "git", cleanURL, user.ID)
+	h.buildAndRun(w, req.Name, serverID, targetDir, effectiveDir, subdir, opts, "git", cleanURL, user.ID)
 }
 
 // =====================================================================
@@ -776,12 +777,26 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.FormValue("name")
+	serverID := r.FormValue("serverId")
 	port := r.FormValue("port")
 
 	if !appNameRe.MatchString(name) {
 		middleware.JSONError(w, http.StatusBadRequest, "invalid name (lowercase letters, digits, dashes, 2-40 characters)")
 		return
 	}
+
+	// ---- L3 : valider le serveur cible ----
+	sh := &ServerHandlers{Store: h.Store}
+	validServerID, err := sh.resolveServerID(user, serverID)
+	if err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if ok, msg := sh.checkServerQuota(validServerID); !ok {
+		middleware.JSONError(w, http.StatusConflict, msg)
+		return
+	}
+
 	autoPort := port == "" || port == "auto"
 	if !autoPort {
 		if _, err := strconv.Atoi(port); err != nil {
@@ -847,6 +862,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		SourceRef:   header.Filename,
 		Path:        targetDir,
 		AppSubdir:   subdir,
+		ServerID:    validServerID,
 		Port:        port,
 		Container:   "vpscontrol-" + name,
 		OwnerID:     user.ID,
@@ -868,7 +884,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		ActorName: user.Username,
 		Action:    "deploy.draft",
 		Target:    name,
-		Details:   map[string]interface{}{"source": "zip", "file": header.Filename, "appSubdir": subdir},
+		Details:   map[string]interface{}{"source": "zip", "file": header.Filename, "appSubdir": subdir, "serverId": validServerID},
 	})
 
 	middleware.JSON(w, http.StatusCreated, dep)
@@ -884,6 +900,15 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		middleware.JSONError(w, http.StatusBadRequest, "no deployment in context")
 		return
+	}
+
+	// L3 : vérifier le quota du serveur (au cas où il aurait changé)
+	sh := &ServerHandlers{Store: h.Store}
+	if dep.ServerID != "" {
+		if ok, msg := sh.checkServerQuota(dep.ServerID); !ok {
+			middleware.JSONError(w, http.StatusConflict, msg)
+			return
+		}
 	}
 
 	if dep.AppSubdir == "" {
@@ -956,17 +981,17 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		ActorName: user.Username,
 		Action:    "deploy.start",
 		Target:    dep.Name,
-		Details:   map[string]interface{}{"stack": stack, "port": dep.Port, "appSubdir": dep.AppSubdir},
+		Details:   map[string]interface{}{"stack": stack, "port": dep.Port, "appSubdir": dep.AppSubdir, "serverId": dep.ServerID},
 	})
 
 	middleware.JSON(w, http.StatusOK, dep)
 }
 
 // =====================================================================
-// buildAndRun
+// buildAndRun — reçoit maintenant serverID
 // =====================================================================
 
-func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, effectiveDir, appSubdir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
+func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, serverID, targetDir, effectiveDir, appSubdir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
 	stack := opts.Stack
 	if stack == "" || stack == "auto" {
 		stack = detectStack(effectiveDir)
@@ -996,6 +1021,7 @@ func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, targetDir, eff
 		SourceRef:     sourceRef,
 		Path:          targetDir,
 		AppSubdir:     appSubdir,
+		ServerID:      serverID,
 		Port:          opts.HostPort,
 		Container:     containerName,
 		NodeVersion:   opts.NodeVersion,
@@ -1060,9 +1086,19 @@ func (h *DeployHandlers) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	perms, _ := middleware.PermissionsFromContext(r.Context())
 	h.enrichStatus(&dep)
+
+	// L3 : enrichir avec le nom du serveur pour l'UI.
+	serverName := ""
+	if dep.ServerID != "" {
+		if srv, ok := h.Store.FindServerByID(dep.ServerID); ok {
+			serverName = srv.Name
+		}
+	}
+
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"deployment":  dep,
 		"permissions": perms,
+		"serverName":  serverName,
 	})
 }
 
@@ -1109,7 +1145,7 @@ func (h *DeployHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
 	removeFiles := r.URL.Query().Get("removeFiles") == "true"
 	if removeFiles && dep.Path != "" {
-		_ = os.RemoveAll(dep.Path)
+		_ = removeAllSafe(dep.Path)
 	}
 	if err := h.Store.DeleteDeployment(dep.ID); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
@@ -1130,8 +1166,6 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dep.SourceType == "git" {
-		// Si le remote a des credentials cachés, git pull les utilisera.
-		// Sinon c'est un clone public, ça marche aussi.
 		if out, err := runCommand(2*time.Minute, "git", "-C", dep.Path, "pull"); err != nil {
 			middleware.JSONError(w, http.StatusInternalServerError, "git pull failed:\n"+out)
 			return
