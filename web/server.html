@@ -818,7 +818,6 @@ async function loadApp() {
       subdirEl.textContent = '📁 (repo root)';
     }
 
-    // L3 : afficher le nom du serveur
     const serverEl = document.getElementById('app-server');
     if (res.serverName) {
       serverEl.textContent = `🖥️ ${res.serverName}`;
@@ -980,13 +979,14 @@ function appendConsoleLine(tag, text, cls = '', parsedErrors = null) {
   if (consoleAutoScroll) out.scrollTop = out.scrollHeight;
 }
 
+// ---- Power buttons : appels scopés sur l'app ----
 document.querySelectorAll('[data-power]').forEach(btn => {
   btn.addEventListener('click', async () => {
     if (!currentApp) return;
     const action = btn.dataset.power;
     appendConsoleLine(CONSOLE_TAG, `Sending "${action}" to container...`, 'muted');
     try {
-      await api(`/api/services/${encodeURIComponent(currentApp.container)}/${action}`, { method: 'POST' });
+      await api(`/api/deployments/${appId}/power/${action}`, { method: 'POST' });
       toast(`Container ${action} done`);
       hideErrorBanner();
       setTimeout(initConsole, 800);
