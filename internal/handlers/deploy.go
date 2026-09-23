@@ -78,6 +78,14 @@ type markerFile struct {
 	priority int
 }
 
+// Ordre de priorité dans un même dossier :
+//  1. Dockerfile (l'utilisateur a déjà décidé comment builder)
+//  2. package.json (Node)
+//  3. composer.json (PHP/Laravel)
+//  4. requirements.txt / pyproject.toml (Python)
+//  5. manage.py / app.py (Python, moins explicite)
+//  6. go.mod
+//  7. index.html (site statique — dernier recours, mais détecté quand même)
 var knownMarkers = []markerFile{
 	{"Dockerfile", 1},
 	{"package.json", 2},
@@ -87,6 +95,8 @@ var knownMarkers = []markerFile{
 	{"manage.py", 5},
 	{"app.py", 5},
 	{"go.mod", 6},
+	{"index.html", 7},
+	{"index.htm", 7},
 }
 
 type candidate struct {
@@ -125,6 +135,9 @@ func isLiftable(dir, marker string) bool {
 	case "requirements.txt", "pyproject.toml", "manage.py", "app.py":
 		return true
 	case "Dockerfile", "go.mod":
+		return true
+	case "index.html", "index.htm":
+		// Un site statique est toujours « liftable » : rien à builder.
 		return true
 	}
 	return false
@@ -441,6 +454,10 @@ func detectStack(dir string) string {
 		return "laravel"
 	case has("requirements.txt") || has("app.py") || has("manage.py"):
 		return "python"
+	case has("index.html") || has("index.htm"):
+		// Site statique : aucun package.json, aucun composer.json,
+		// mais un index.html à la racine.
+		return "static"
 	default:
 		return "static"
 	}
@@ -1394,7 +1411,7 @@ func (h *DeployHandlers) UpdateLimits(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// Console — ne renvoie des logs que si le conteneur tourne.
+// Console
 // =====================================================================
 
 func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
@@ -1425,17 +1442,12 @@ func (h *DeployHandlers) ConsoleInfo(w http.ResponseWriter, r *http.Request) {
 		finishedAt = parts[3]
 	}
 
-	// On ne charge les logs QUE si le conteneur tourne.
-	// Sinon la console reste vide côté frontend.
 	logs := ""
 	if status == "running" {
 		logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
 		logs = logsOut
 	}
 
-	// Si le conteneur a crashé, on stocke quand même les logs dans
-	// LastError pour le banner d'erreur (mais on ne les renvoie PAS
-	// dans le champ logs → la console reste vide).
 	if status == "exited" && exitCode != 0 {
 		logsOut, _ := runCommand(10*time.Second, "docker", "logs", "--tail", "100", dep.Container)
 		dep.Status = "error"
@@ -1475,8 +1487,6 @@ func (h *DeployHandlers) ConsoleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Si le conteneur ne tourne pas, on ferme le stream immédiatement
-	// (aucun log ne sera produit de toute façon).
 	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
 		"--format", "{{.State.Status}}", dep.Container)
 	if strings.TrimSpace(statusOut) != "running" {
