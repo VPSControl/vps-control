@@ -173,7 +173,6 @@ func main() {
 	mux.Handle("/api/users", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
 		"GET": userH.List, "POST": userH.Create,
 	}))))
-	// DELETE /api/users/{id} (rétro-compat, sans preview)
 	mux.Handle("/api/users/", authMw(adminMw(http.HandlerFunc(userH.Delete))))
 
 	// L4 : endpoints admin avec preview + cascade propre.
@@ -227,10 +226,15 @@ func main() {
 
 	// =====================================================================
 	// Deployments — création
+	//
+	// Accessible à TOUT utilisateur authentifié. L'isolation est garantie
+	// en aval par resolveServerID() (refuse si le serveur n'appartient pas
+	// à l'appelant) et checkServerQuota() (refuse si quota disque ou
+	// maxApps dépassé).
 	// =====================================================================
-	mux.Handle("/api/deploy/git", authMw(adminMw(http.HandlerFunc(deployH.DeployGit))))
-	mux.Handle("/api/deploy/upload", authMw(adminMw(http.HandlerFunc(deployH.DeployUpload))))
-	mux.Handle("/api/deploy/suggest-port", authMw(adminMw(http.HandlerFunc(deployH.SuggestPort))))
+	mux.Handle("/api/deploy/git", authMw(http.HandlerFunc(deployH.DeployGit)))
+	mux.Handle("/api/deploy/upload", authMw(http.HandlerFunc(deployH.DeployUpload)))
+	mux.Handle("/api/deploy/suggest-port", authMw(http.HandlerFunc(deployH.SuggestPort)))
 	mux.Handle("/api/deployments", authMw(http.HandlerFunc(deployH.List)))
 
 	// =====================================================================
