@@ -70,18 +70,15 @@ func (h *ServerHandlers) purgeDeployment(dep store.Deployment) PurgeResult {
 	// 2. Supprimer les backups (fichiers .tar.gz + images taguées).
 	backups := h.Store.ListBackupsForDeployment(dep.ID)
 	for _, b := range backups {
-		// Fichier archive
 		archivePath := filepath.Join("/opt/vpscontrol/backups", b.Filename)
 		if err := removeFileIfExists(archivePath); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("backup file %s: %v", b.Filename, err))
 		}
-		// Image Docker du backup
 		if b.ImageTag != "" {
 			if _, err := runCommand(20*time.Second, "docker", "rmi", b.ImageTag); err == nil {
 				res.ImagesRemoved++
 			}
 		}
-		// Entrée store
 		_ = h.Store.DeleteBackup(b.ID)
 		res.BackupsRemoved++
 	}
@@ -125,8 +122,6 @@ func (h *ServerHandlers) purgeDeployment(dep store.Deployment) PurgeResult {
 
 // purgeServer supprime toutes les apps d'un serveur (via purgeDeployment)
 // puis le serveur lui-même. Retourne le résultat agrégé.
-//
-// IMPORTANT : ne pas appeler sans vérifier que l'appelant est autorisé.
 func (h *ServerHandlers) purgeServer(srv store.Server) PurgeResult {
 	res := PurgeResult{}
 	deps := h.Store.ListDeploymentsInServer(srv.ID)
@@ -149,13 +144,9 @@ func (h *ServerHandlers) purgeServer(srv store.Server) PurgeResult {
 //   - ses serveurs et les apps de ces serveurs (cascade)
 //   - ses apps orphelines éventuelles (au cas où, ceinture + bretelles)
 //   - son token GitHub
-//   - ses tokens API
 //   - ses subuser entries (où il apparaît comme collaborateur)
-//   - ses invitations en tant que créateur
 //
-// Ne supprime PAS le user du store : c'est le rôle de l'appelant
-// (après avoir vérifié les règles métier, comme "ne pas supprimer
-// le dernier admin").
+// Ne supprime PAS le user du store : c'est le rôle de l'appelant.
 func (h *ServerHandlers) purgeUserResources(userID string) PurgeResult {
 	res := PurgeResult{}
 
@@ -169,7 +160,6 @@ func (h *ServerHandlers) purgeUserResources(userID string) PurgeResult {
 	// ServerID suite à un bug ou une migration incomplète).
 	orphans := h.Store.ListDeploymentsOwnedBy(userID)
 	for _, d := range orphans {
-		// Si le ServerID n'est plus valide, on purge quand même.
 		if d.ServerID == "" {
 			mergePurge(&res, h.purgeDeployment(d))
 		} else if _, ok := h.Store.FindServerByID(d.ServerID); !ok {
@@ -178,20 +168,9 @@ func (h *ServerHandlers) purgeUserResources(userID string) PurgeResult {
 	}
 
 	// 3. Token GitHub.
-	if err := h.Store.DeleteGithubToken(userID); err == nil {
-		// pas de compteur dédié, on l'ajoute aux "folders" pour l'info
-	}
+	_ = h.Store.DeleteGithubToken(userID)
 
-	// 4. API tokens : on les révoque plutôt que de les supprimer, pour
-	// garder une trace. Mais comme on va supprimer le user, autant les
-	// purger complètement pour ne pas laisser d'entrées orphelines.
-	// (Le store les supprime déjà dans DeleteUser, donc on ne fait rien ici.)
-
-	// 5. Retirer cet utilisateur de tous ses rôles de subuser sur des
-	// apps d'autres users (il ne doit plus apparaître dans les listes
-	// de collaborateurs).
-	// NB : DeleteUser fait déjà ça, mais on le refait ici pour être
-	// cohérent si on appelle purgeUserResources sans DeleteUser.
+	// 4. Retirer cet utilisateur de tous ses rôles de subuser.
 	for _, dep := range h.Store.ListDeployments() {
 		subs := h.Store.ListSubusersForDeployment(dep.ID)
 		for _, sub := range subs {
@@ -222,33 +201,26 @@ func removeFileIfExists(path string) error {
 
 // removeDomainArtifacts : supprime le vhost Nginx, son symlink, et
 // (best-effort) le certificat Let's Encrypt associé.
-//
-// On refait ici la logique de DomainHandlers.Delete pour pouvoir purger
-// un domaine sans passer par un handler HTTP.
 func removeDomainArtifacts(dom store.Domain) error {
 	if dom.Hostname == "" {
 		return nil
 	}
 
 	// Nom de fichier standard utilisé par DomainHandlers.Create.
+	// safeSlug est définie dans domains.go (même package).
 	confName := "vpscontrol-domain-" + safeSlug(dom.Hostname) + ".conf"
 
-	// Suppression du symlink + du fichier.
 	_ = os.Remove(filepath.Join("/etc/nginx/sites-enabled", confName))
 	_ = os.Remove(filepath.Join("/etc/nginx/sites-available", confName))
 
-	// Si un chemin explicite était stocké, on le supprime aussi.
 	if dom.ConfigPath != "" {
 		_ = os.Remove(dom.ConfigPath)
 	}
 
-	// Nginx reload (best-effort, on ne veut pas faire échouer le purge
-	// si Nginx est déjà down).
+	// Nginx reload (best-effort).
 	_, _ = runCommand(15*time.Second, "systemctl", "reload", "nginx")
 
-	// Certificat SSL : si Let's Encrypt en a un pour ce hostname, on
-	// le supprime. Certbot utilise le hostname comme --cert-name par
-	// défaut dans notre implémentation.
+	// Certificat SSL Let's Encrypt (best-effort).
 	if dom.SSLStatus == "active" {
 		_, _ = runCommand(30*time.Second, "certbot", "delete",
 			"--cert-name", dom.Hostname, "--non-interactive")
@@ -264,13 +236,13 @@ func removeDomainArtifacts(dom store.Domain) error {
 // UserPurgePreview résume ce qui serait supprimé pour un user, pour
 // affichage dans le dialog de confirmation admin.
 type UserPurgePreview struct {
-	UserID        string `json:"userId"`
-	Username      string `json:"username"`
-	ServersCount  int    `json:"serversCount"`
-	AppsCount     int    `json:"appsCount"`
-	BackupsCount  int    `json:"backupsCount"`
-	DomainsCount  int    `json:"domainsCount"`
-	DiskUsedMB    int64  `json:"diskUsedMB"`
+	UserID       string `json:"userId"`
+	Username     string `json:"username"`
+	ServersCount int    `json:"serversCount"`
+	AppsCount    int    `json:"appsCount"`
+	BackupsCount int    `json:"backupsCount"`
+	DomainsCount int    `json:"domainsCount"`
+	DiskUsedMB   int64  `json:"diskUsedMB"`
 }
 
 // buildUserPurgePreview : scanne les ressources du user pour préparer
@@ -284,7 +256,6 @@ func (h *ServerHandlers) buildUserPurgePreview(user store.User) UserPurgePreview
 	servers := h.Store.ListServersForUser(user.ID)
 	preview.ServersCount = len(servers)
 
-	// Compter les apps : celles dans les serveurs + orphelines.
 	seen := map[string]bool{}
 	for _, srv := range servers {
 		deps := h.Store.ListDeploymentsInServer(srv.ID)
@@ -294,7 +265,7 @@ func (h *ServerHandlers) buildUserPurgePreview(user store.User) UserPurgePreview
 			}
 			seen[d.ID] = true
 			preview.AppsCount++
-			preview.DiskUsedMB += dirSize(d.Path) / (1024 * 1024)
+			preview.DiskUsedMB += dirSizeMB(d.Path)
 			preview.BackupsCount += len(h.Store.ListBackupsForDeployment(d.ID))
 			preview.DomainsCount += len(h.Store.ListDomainsForDeployment(d.ID))
 		}
@@ -306,7 +277,7 @@ func (h *ServerHandlers) buildUserPurgePreview(user store.User) UserPurgePreview
 		}
 		seen[d.ID] = true
 		preview.AppsCount++
-		preview.DiskUsedMB += dirSize(d.Path) / (1024 * 1024)
+		preview.DiskUsedMB += dirSizeMB(d.Path)
 		preview.BackupsCount += len(h.Store.ListBackupsForDeployment(d.ID))
 		preview.DomainsCount += len(h.Store.ListDomainsForDeployment(d.ID))
 	}
@@ -315,22 +286,31 @@ func (h *ServerHandlers) buildUserPurgePreview(user store.User) UserPurgePreview
 }
 
 // =====================================================================
-// Utilitaire : slug de hostname (doit rester identique à domains.go)
+// Helpers locaux
 // =====================================================================
 
-// safeSlug : reproduit la fonction de domains.go pour générer le même
-// nom de fichier de config Nginx.
-func safeSlug(hostname string) string {
-	// Copie exacte de domains.go — NE PAS MODIFIER sans mettre à jour
-	// domains.go en parallèle, sinon les vhosts ne seront pas supprimés.
-	var b strings.Builder
-	for _, r := range strings.ToLower(hostname) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
-		}
+// dirSizeMB : taille d'un dossier en MB. Walk récursif, ignore les
+// erreurs (fichiers supprimés pendant le parcours, permissions…).
+func dirSizeMB(path string) int64 {
+	if path == "" {
+		return 0
 	}
-	return b.String()
+	var total int64
+	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total / (1024 * 1024)
 }
+
+// Note : safeSlug est définie dans domains.go (même package handlers).
+// On ne la redéfinit PAS ici pour éviter le conflit de déclaration.
+
+// silence l'import strings si jamais on ne s'en sert pas ailleurs dans
+// ce fichier (au cas où on enlèverait du code plus tard).
+var _ = strings.TrimSpace
