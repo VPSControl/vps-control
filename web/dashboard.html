@@ -35,6 +35,10 @@ tailwind.config = {
   ::-webkit-scrollbar-track { background: #0a0f1a; }
   ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #374151; }
+  .progress-bar { height: 6px; background: #1a2332; border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #22c55e; transition: width .3s ease; }
+  .progress-fill.warn { background: #f59e0b; }
+  .progress-fill.danger { background: #ef4444; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -75,7 +79,10 @@ tailwind.config = {
         <i class="fas fa-gauge-high w-4"></i><span>Dashboard</span>
       </a>
       <a href="/servers.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition">
-        <i class="fas fa-server w-4"></i><span>Servers</span>
+        <i class="fas fa-server w-4"></i><span>My apps</span>
+      </a>
+      <a href="/servers-admin.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-servers-admin">
+        <i class="fas fa-layer-group w-4"></i><span>Servers</span>
       </a>
       <a href="/deploy.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-deploy">
         <i class="fas fa-rocket w-4"></i><span>Deploy</span>
@@ -173,6 +180,21 @@ tailwind.config = {
       </div>
     </div>
 
+    <!-- Mes serveurs -->
+    <div class="bg-panel border border-border rounded-xl overflow-hidden mb-6">
+      <div class="px-5 py-4 border-b border-border flex items-center justify-between">
+        <h2 class="font-semibold text-white flex items-center gap-2">
+          <i class="fas fa-layer-group text-gray-500"></i>My servers
+        </h2>
+        <a href="/servers-admin.html" id="link-admin-servers" class="hidden text-xs text-accent hover:underline">
+          Manage servers <i class="fas fa-arrow-right ml-1"></i>
+        </a>
+      </div>
+      <div id="servers-list" class="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <p class="text-gray-500 text-sm">Loading...</p>
+      </div>
+    </div>
+
     <!-- Recent apps -->
     <div class="bg-panel border border-border rounded-xl overflow-hidden">
       <div class="px-5 py-4 border-b border-border">
@@ -228,24 +250,35 @@ overlay?.addEventListener('click', closeSidebar);
   window.currentUser = me;
   document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
   const isAdmin = me.role === 'admin';
-  ['nav-deploy','nav-files','nav-services','nav-databases','nav-users','nav-activity','nav-system'].forEach(id => {
+
+  // Cacher les liens admin pour les non-admins
+  ['nav-servers-admin','nav-deploy','nav-files','nav-services','nav-databases','nav-users','nav-activity','nav-system'].forEach(id => {
     const el = document.getElementById(id);
     if (el && !isAdmin) el.classList.add('hidden');
   });
+
+  // Le lien "Manage servers" n'apparaît que pour les admins
+  if (isAdmin) {
+    document.getElementById('link-admin-servers').classList.remove('hidden');
+  }
+
   document.getElementById('btn-logout').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.href = '/index.html';
   });
+
   loadStats();
+  loadServers();
   loadRecentApps();
-  document.getElementById('btn-refresh').addEventListener('click', () => { loadStats(); loadRecentApps(); });
+  document.getElementById('btn-refresh').addEventListener('click', () => {
+    loadStats();
+    loadServers();
+    loadRecentApps();
+  });
 })();
 
 async function loadStats() {
   try {
-    // Stats renvoie maintenant les compteurs filtrés par user.
-    // Inutile de refetch /api/deployments pour compter : le backend
-    // le fait déjà dans "deployments".
     const stats = await api('/api/system/stats');
     document.getElementById('stat-services').textContent = `${stats.servicesRunning} / ${stats.servicesTotal}`;
     document.getElementById('stat-deployments').textContent = stats.deployments;
@@ -256,6 +289,67 @@ async function loadStats() {
   } catch (err) { toast(err.message, true); }
 }
 
+// ---- Mes serveurs ----
+async function loadServers() {
+  const container = document.getElementById('servers-list');
+  try {
+    const servers = await api('/api/servers/mine') || [];
+    if (servers.length === 0) {
+      container.innerHTML = `
+        <div class="col-span-full text-center py-6 text-gray-500 text-sm">
+          <i class="fas fa-layer-group text-2xl text-gray-600 mb-2"></i>
+          <p>No server assigned to your account.</p>
+          <p class="text-xs mt-1">${window.currentUser.role === 'admin' ? 'Create one in <a href="/servers-admin.html" class="text-accent hover:underline">Servers</a>.' : 'Contact an admin to get one.'}</p>
+        </div>`;
+      return;
+    }
+    container.innerHTML = '';
+    servers.forEach(srv => container.appendChild(renderServerCard(srv)));
+  } catch (err) {
+    container.innerHTML = `<p class="text-danger col-span-full text-sm">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderServerCard(srv) {
+  const card = document.createElement('div');
+  card.className = 'bg-bg border border-border rounded-lg p-4';
+
+  const diskUsed = srv.diskUsedMB || 0;
+  const diskQuota = srv.diskMB || 0;
+  const diskPct = diskQuota > 0 ? Math.min(100, Math.round((diskUsed / diskQuota) * 100)) : 0;
+  const diskCls = diskPct >= 90 ? 'danger' : diskPct >= 75 ? 'warn' : '';
+
+  const appsCount = srv.appsCount || 0;
+  const appsMax = srv.maxApps || 0;
+  const appsPct = appsMax > 0 ? Math.min(100, Math.round((appsCount / appsMax) * 100)) : 0;
+  const appsCls = appsPct >= 90 ? 'danger' : appsPct >= 75 ? 'warn' : '';
+
+  card.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <div class="text-sm font-bold text-white truncate">${escapeHtml(srv.name)}</div>
+      <i class="fas fa-server text-gray-600 text-xs"></i>
+    </div>
+    <div class="space-y-2.5 text-xs">
+      <div>
+        <div class="flex justify-between text-gray-500 mb-1">
+          <span>Disk</span>
+          <span class="font-mono text-gray-300">${diskQuota > 0 ? `${diskUsed} / ${diskQuota} MB` : `${diskUsed} MB · ∞`}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${diskCls}" style="width:${diskPct}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-gray-500 mb-1">
+          <span>Apps</span>
+          <span class="font-mono text-gray-300">${appsMax > 0 ? `${appsCount} / ${appsMax}` : `${appsCount} · ∞`}</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${appsCls}" style="width:${appsPct}%"></div></div>
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+// ---- Recent apps ----
 async function loadRecentApps() {
   const tbody = document.getElementById('recent-apps');
   try {
