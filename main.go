@@ -173,7 +173,14 @@ func main() {
 	mux.Handle("/api/users", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
 		"GET": userH.List, "POST": userH.Create,
 	}))))
+	// DELETE /api/users/{id} (rétro-compat, sans preview)
 	mux.Handle("/api/users/", authMw(adminMw(http.HandlerFunc(userH.Delete))))
+
+	// L4 : endpoints admin avec preview + cascade propre.
+	mux.Handle("/api/admin/users/", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
+		"GET":    userH.Preview,
+		"DELETE": userH.Delete,
+	}))))
 
 	// =====================================================================
 	// Admin — global files
