@@ -29,6 +29,8 @@ tailwind.config = {
   input:focus, select:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
   select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; padding-right: 34px; }
   label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
+  .hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
+  .hint code { background: #0a0f1a; border: 1px solid #1f2937; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; color: #22c55e; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -76,8 +78,10 @@ tailwind.config = {
         <form id="form-deploy-git">
           <label>Application name</label>
           <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+
           <label>Repository URL</label>
           <input name="repoUrl" placeholder="https://github.com/user/project.git" required>
+
           <label>Stack</label>
           <select name="stack" class="stack-select">
             <option value="auto">Auto-detect</option>
@@ -91,6 +95,10 @@ tailwind.config = {
             <option value="python">Python</option>
             <option value="static">Static site</option>
           </select>
+
+          <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
+          <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
+          <p class="hint">If your project lives in a subfolder of the repo (e.g. <code>backend/</code> or <code>frontend/</code>), specify it here. Leave empty to auto-detect the closest folder containing <code>package.json</code>, <code>composer.json</code>, etc.</p>
 
           <div class="version-row version-node">
             <label>Node.js version</label>
@@ -138,6 +146,7 @@ tailwind.config = {
         <form id="form-deploy-upload">
           <label>Application name</label>
           <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+
           <label>Project .zip archive</label>
           <input type="file" name="archive" accept=".zip" required>
 
@@ -151,7 +160,7 @@ tailwind.config = {
           <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
 
           <p class="text-xs text-gray-500 mt-3 leading-relaxed">
-            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer.
+            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer. Le sous-dossier de l'app (si le ZIP contient un dossier racine, ex. <code class="text-accent">my-project-main/</code>) sera détecté automatiquement.
           </p>
 
           <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
@@ -277,7 +286,8 @@ document.getElementById('form-deploy-upload').addEventListener('submit', async (
   document.getElementById('deploy-status').textContent = 'Uploading and extracting...';
   try {
     const dep = await api('/api/deploy/upload', { method:'POST', body: fd });
-    toast('Files extracted. Configure and deploy.');
+    const subdirMsg = dep.appSubdir ? ` (subdir: ${dep.appSubdir})` : '';
+    toast(`Files extracted${subdirMsg}. Configure and deploy.`);
     location.href = `/server.html?id=${dep.id}&tab=files`;
   } catch (err) {
     document.getElementById('deploy-status').textContent = '';
