@@ -78,6 +78,25 @@ type Limits struct {
 	PidsLimit int     `json:"pidsLimit"`
 }
 
+// Server : entité logique à la Pterodactyl. Un admin crée un ou plusieurs
+// serveurs et les assigne à un utilisateur. Un utilisateur ne voit que
+// ses propres serveurs, et ne peut y déployer des apps que dans la
+// limite des quotas (disque, nombre d'apps). Les quotas RAM/CPU sont
+// purement indicatifs (partagés au niveau du VPS entier, impossibles à
+// appliquer proprement sans cgroup dédié par serveur).
+type Server struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	OwnerID   string    `json:"ownerId"`   // user à qui appartient ce serveur
+	DiskMB    int       `json:"diskMB"`    // quota disque en MB (0 = illimité)
+	MemoryMB  int       `json:"memoryMB"`  // quota RAM indicatif (0 = illimité)
+	CPUQuota  float64   `json:"cpuQuota"`  // % CPU indicatif (0 = illimité)
+	MaxApps   int       `json:"maxApps"`   // nombre max d'apps (0 = illimité)
+	Notes     string    `json:"notes,omitempty"`
+	CreatedBy string    `json:"createdBy"` // admin qui a créé ce serveur
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // Deployment Status possibles :
 //   - "draft"      → fichiers importés, pas encore buildé
 //   - "deploying"  → build en cours
@@ -94,6 +113,7 @@ type Deployment struct {
 	AppSubdir     string       `json:"appSubdir,omitempty"`
 	Port          string       `json:"port"`
 	Container     string       `json:"container"`
+	ServerID      string       `json:"serverId"` // serveur auquel cette app appartient
 	NodeVersion   string       `json:"nodeVersion,omitempty"`
 	PythonVersion string       `json:"pythonVersion,omitempty"`
 	PHPVersion    string       `json:"phpVersion,omitempty"`
@@ -186,14 +206,6 @@ type Notification struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// GithubToken : un PAT GitHub par utilisateur, utilisé pour cloner
-// des repos privés et (plus tard) lister les repos de l'utilisateur
-// (publics + privés + organisations).
-//
-// Le token est stocké en clair, comme les mots de passe de bases de
-// données dans ce même fichier. Le fichier est en 0600 root-only.
-// Ne jamais renvoyer le token en clair via l'API (sauf au moment de
-// la création si on voulait l'afficher, mais on ne le fait pas).
 type GithubToken struct {
 	UserID     string    `json:"userId"`
 	Token      string    `json:"token"`
@@ -207,6 +219,7 @@ type data struct {
 	Users         []User          `json:"users"`
 	DBConns       []DBConnection  `json:"dbConnections"`
 	Deployments   []Deployment    `json:"deployments"`
+	Servers       []Server        `json:"servers,omitempty"`
 	Subusers      []Subuser       `json:"subusers,omitempty"`
 	Invitations   []Invitation    `json:"invitations,omitempty"`
 	Backups       []Backup        `json:"backups,omitempty"`
@@ -249,7 +262,65 @@ func (s *Store) load() error {
 		s.d = data{}
 		return nil
 	}
-	return json.Unmarshal(b, &s.d)
+	if err := json.Unmarshal(b, &s.d); err != nil {
+		return err
+	}
+	// Migration L3 : rattacher les déploiements orphelins (créés avant
+	// l'introduction des serveurs) à un serveur "Default" par owner.
+	if migrated := s.migrateOrphanDeployments(); migrated {
+		_ = s.saveLocked()
+	}
+	return nil
+}
+
+// migrateOrphanDeployments : crée un serveur "Default" pour chaque owner
+// qui a des déploiements sans ServerID, puis rattache ces déploiements.
+// Retourne true si quelque chose a été modifié.
+func (s *Store) migrateOrphanDeployments() bool {
+	// Regrouper les déploiements orphelins par owner.
+	orphansByOwner := map[string][]int{}
+	for i, d := range s.d.Deployments {
+		if d.ServerID == "" && d.OwnerID != "" {
+			orphansByOwner[d.OwnerID] = append(orphansByOwner[d.OwnerID], i)
+		}
+	}
+	if len(orphansByOwner) == 0 {
+		return false
+	}
+
+	// Pour chaque owner orphelin, soit on réutilise un serveur "Default"
+	// existant (même nom), soit on en crée un nouveau.
+	for ownerID, idxs := range orphansByOwner {
+		serverID := ""
+		// Chercher un serveur existant pour cet owner qui s'appelle "Default".
+		for _, srv := range s.d.Servers {
+			if srv.OwnerID == ownerID && srv.Name == "Default" {
+				serverID = srv.ID
+				break
+			}
+		}
+		// Sinon en créer un.
+		if serverID == "" {
+			serverID = "srv-default-" + ownerID
+			s.d.Servers = append(s.d.Servers, Server{
+				ID:        serverID,
+				Name:      "Default",
+				OwnerID:   ownerID,
+				DiskMB:    0, // illimité
+				MemoryMB:  0,
+				CPUQuota:  0,
+				MaxApps:   0, // illimité
+				Notes:     "Auto-created during migration to the servers model.",
+				CreatedBy: "system",
+				CreatedAt: time.Now(),
+			})
+		}
+		// Rattacher les déploiements orphelins.
+		for _, idx := range idxs {
+			s.d.Deployments[idx].ServerID = serverID
+		}
+	}
+	return true
 }
 
 func (s *Store) saveLocked() error {
@@ -351,7 +422,6 @@ func (s *Store) DeleteUser(id string) error {
 	}
 	s.d.APITokens = tokKeep
 
-	// Supprimer le token GitHub associé
 	var ghKeep []GithubToken
 	for _, g := range s.d.GithubTokens {
 		if g.UserID != id {
@@ -359,6 +429,24 @@ func (s *Store) DeleteUser(id string) error {
 		}
 	}
 	s.d.GithubTokens = ghKeep
+
+	// L4 : supprimer aussi les serveurs et déploiements de cet user.
+	// (Pour l'instant : suppression best-effort, sans toucher au disque.)
+	var srvKeep []Server
+	for _, srv := range s.d.Servers {
+		if srv.OwnerID != id {
+			srvKeep = append(srvKeep, srv)
+		}
+	}
+	s.d.Servers = srvKeep
+
+	var depKeep []Deployment
+	for _, d := range s.d.Deployments {
+		if d.OwnerID != id {
+			depKeep = append(depKeep, d)
+		}
+	}
+	s.d.Deployments = depKeep
 
 	return s.saveLocked()
 }
@@ -407,6 +495,126 @@ func (s *Store) DeleteDBConnection(id string) error {
 	return s.saveLocked()
 }
 
+// ---- Servers ----
+
+func (s *Store) ListServers() []Server {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Server, len(s.d.Servers))
+	copy(out, s.d.Servers)
+	return out
+}
+
+// ListServersForUser : retourne les serveurs possédés par cet utilisateur.
+// Pour un admin qui veut voir TOUS les serveurs, utiliser ListServers.
+func (s *Store) ListServersForUser(userID string) []Server {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []Server{}
+	for _, srv := range s.d.Servers {
+		if srv.OwnerID == userID {
+			out = append(out, srv)
+		}
+	}
+	return out
+}
+
+func (s *Store) FindServerByID(id string) (Server, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, srv := range s.d.Servers {
+		if srv.ID == id {
+			return srv, true
+		}
+	}
+	return Server{}, false
+}
+
+func (s *Store) AddServer(srv Server) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.d.Servers {
+		if existing.OwnerID == srv.OwnerID && existing.Name == srv.Name {
+			return errors.New("this user already has a server with this name")
+		}
+	}
+	s.d.Servers = append(s.d.Servers, srv)
+	return s.saveLocked()
+}
+
+func (s *Store) UpdateServer(srv Server) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.d.Servers {
+		if existing.ID == srv.ID {
+			s.d.Servers[i] = srv
+			return s.saveLocked()
+		}
+	}
+	return errors.New("server not found")
+}
+
+func (s *Store) DeleteServer(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, srv := range s.d.Servers {
+		if srv.ID == id {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		return errors.New("server not found")
+	}
+	s.d.Servers = append(s.d.Servers[:idx], s.d.Servers[idx+1:]...)
+	return s.saveLocked()
+}
+
+// CountAppsInServer : nombre de déploiements rattachés à ce serveur.
+func (s *Store) CountAppsInServer(serverID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, d := range s.d.Deployments {
+		if d.ServerID == serverID {
+			n++
+		}
+	}
+	return n
+}
+
+// DiskUsedByServer : somme des tailles des dossiers d'apps du serveur,
+// en MB. Utilise os.Stat récursif. Peut être lent si beaucoup de
+// fichiers, mais c'est acceptable pour un usage panel.
+func (s *Store) DiskUsedByServer(serverID string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var total int64
+	for _, d := range s.d.Deployments {
+		if d.ServerID != serverID || d.Path == "" {
+			continue
+		}
+		total += dirSize(d.Path)
+	}
+	return total / (1024 * 1024) // → MB
+}
+
+// dirSize calcule la taille totale d'un dossier en bytes.
+// Ignore les erreurs (fichiers supprimés pendant le parcours, permissions…).
+func dirSize(path string) int64 {
+	var total int64
+	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
 // ---- Deployments ----
 
 func (s *Store) ListDeployments() []Deployment {
@@ -443,6 +651,19 @@ func (s *Store) ListDeploymentsOwnedBy(userID string) []Deployment {
 	out := []Deployment{}
 	for _, d := range s.d.Deployments {
 		if d.OwnerID == userID {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// ListDeploymentsInServer : tous les déploiements rattachés à un serveur.
+func (s *Store) ListDeploymentsInServer(serverID string) []Deployment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []Deployment{}
+	for _, d := range s.d.Deployments {
+		if d.ServerID == serverID {
 			out = append(out, d)
 		}
 	}
@@ -1003,9 +1224,6 @@ func (s *Store) DeleteDomain(id string) error {
 
 // ---- GitHub tokens ----
 
-// GetGithubToken retourne le token GitHub d'un user (sans le UserID
-// dans la réponse — la clé est le UserID). Renvoie (zero, false) si
-// l'utilisateur n'a pas connecté son compte GitHub.
 func (s *Store) GetGithubToken(userID string) (GithubToken, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1017,8 +1235,6 @@ func (s *Store) GetGithubToken(userID string) (GithubToken, bool) {
 	return GithubToken{}, false
 }
 
-// SetGithubToken : remplace (ou crée) le token GitHub d'un user.
-// Il n'y a jamais plus d'un token par user.
 func (s *Store) SetGithubToken(g GithubToken) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
