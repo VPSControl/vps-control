@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Servers Admin — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: {
+      bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937',
+      accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444',
+      amber: { light: 'rgba(245,158,11,.15)', DEFAULT: '#f59e0b', dark: '#b45309' }
+    },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  input, select, textarea {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; padding-right: 34px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
+  .progress-bar { height: 6px; background: #1a2332; border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #22c55e; transition: width .3s ease; }
+  .progress-fill.warn { background: #f59e0b; }
+  .progress-fill.danger { background: #ef4444; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">Servers Admin</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl lg:text-2xl font-bold text-white">Servers</h1>
+        <p class="text-sm text-gray-500 mt-1">Create and manage servers assigned to panel users. Users can only deploy on their own servers.</p>
+      </div>
+      <div class="flex gap-2">
+        <button id="btn-refresh" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
+          <i class="fas fa-rotate mr-2"></i>Refresh
+        </button>
+        <button id="btn-create-server" class="px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-plus mr-2"></i>New server
+        </button>
+      </div>
+    </div>
+
+    <div id="servers-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <p class="text-gray-500">Loading...</p>
+    </div>
+  </main>
+</div>
+
+<!-- Create/Edit modal -->
+<div id="server-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 overflow-y-auto">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-lg my-8">
+    <h3 id="server-modal-title" class="text-lg font-bold text-white mb-4">Create server</h3>
+    <input type="hidden" id="server-id">
+
+    <label>Name</label>
+    <input id="server-name" placeholder="Prod / Staging / Default">
+
+    <label>Owner</label>
+    <select id="server-owner"></select>
+
+    <div class="grid grid-cols-2 gap-3 mt-3">
+      <div>
+        <label>Disk quota (MB) — 0 = unlimited</label>
+        <input id="server-disk" type="number" min="0" value="0">
+      </div>
+      <div>
+        <label>Memory quota (MB) — info only</label>
+        <input id="server-memory" type="number" min="0" value="0">
+      </div>
+      <div>
+        <label>CPU quota (%) — info only</label>
+        <input id="server-cpu" type="number" min="0" step="10" value="0">
+      </div>
+      <div>
+        <label>Max apps — 0 = unlimited</label>
+        <input id="server-maxapps" type="number" min="0" value="0">
+      </div>
+    </div>
+
+    <label>Notes (optional)</label>
+    <textarea id="server-notes" rows="2" placeholder="Free-form notes about this server"></textarea>
+
+    <p id="server-modal-error" class="text-xs text-danger mt-3 min-h-[16px]"></p>
+
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-server" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-save-server" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete modal -->
+<div id="delete-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-lg">
+    <h3 class="text-lg font-bold text-white mb-2">Delete server</h3>
+    <p class="text-sm text-gray-400 mb-4">
+      Server <strong id="delete-server-name" class="text-white">—</strong> contains
+      <strong id="delete-apps-count" class="text-white">0</strong> app(s).
+    </p>
+
+    <div id="delete-no-apps" class="hidden">
+      <p class="text-sm text-gray-400">This server is empty. It will be deleted.</p>
+    </div>
+
+    <div id="delete-has-apps" class="hidden space-y-3">
+      <p class="text-xs text-gray-500">What should happen to the apps?</p>
+
+      <label class="flex items-start gap-2 p-3 rounded-lg bg-bg border border-border cursor-pointer">
+        <input type="radio" name="del-mode" value="delete" checked class="accent-accent mt-1">
+        <div>
+          <div class="text-sm text-white font-medium">Delete them permanently</div>
+          <div class="text-xs text-gray-500 mt-0.5">Containers will be removed, folders deleted. This cannot be undone.</div>
+        </div>
+      </label>
+
+      <label class="flex items-start gap-2 p-3 rounded-lg bg-bg border border-border cursor-pointer">
+        <input type="radio" name="del-mode" value="move" class="accent-accent mt-1">
+        <div class="flex-1">
+          <div class="text-sm text-white font-medium">Move them to another server</div>
+          <div class="text-xs text-gray-500 mt-0.5 mb-2">Choose a target server (must have the same owner).</div>
+          <select id="delete-target">
+            <option value="">— select a server —</option>
+          </select>
+        </div>
+      </label>
+    </div>
+
+    <p id="delete-error" class="text-xs text-danger mt-3 min-h-[16px]"></p>
+
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-delete" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-delete" class="px-4 py-2 rounded-lg bg-danger hover:bg-red-600 text-white font-semibold text-sm transition">Delete server</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200]"></div>
+
+<script src="/app.js"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu')?.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); });
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+
+// Nav incluant le lien "Servers Admin"
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
+    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
+let allServers = [];
+let allUsers = [];
+let currentEditID = null;
+let currentDeleteServer = null;
+
+(async function() {
+  const me = await requireAuth({ adminOnly: true });
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+  buildNav('servers-admin', me.role === 'admin');
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+
+  await loadUsers();
+  await loadServers();
+
+  document.getElementById('btn-refresh').addEventListener('click', loadServers);
+  document.getElementById('btn-create-server').addEventListener('click', () => openServerModal(null));
+  document.getElementById('btn-cancel-server').addEventListener('click', closeServerModal);
+  document.getElementById('btn-save-server').addEventListener('click', saveServer);
+
+  document.getElementById('btn-cancel-delete').addEventListener('click', closeDeleteModal);
+  document.getElementById('btn-confirm-delete').addEventListener('click', confirmDelete);
+
+  document.querySelectorAll('input[name="del-mode"]').forEach(r => {
+    r.addEventListener('change', updateDeleteMode);
+  });
+})();
+
+async function loadUsers() {
+  try {
+    allUsers = await api('/api/users') || [];
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function loadServers() {
+  const grid = document.getElementById('servers-grid');
+  grid.innerHTML = '<p class="text-gray-500">Loading...</p>';
+  try {
+    allServers = await api('/api/admin/servers') || [];
+    if (allServers.length === 0) {
+      grid.innerHTML = `
+        <div class="col-span-full text-center py-12 text-gray-500">
+          <i class="fas fa-layer-group text-3xl mb-3 text-gray-600"></i>
+          <p>No server yet.</p>
+          <button onclick="openServerModal(null)" class="mt-4 px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fas fa-plus mr-2"></i>Create the first server
+          </button>
+        </div>`;
+      return;
+    }
+    grid.innerHTML = '';
+    allServers.forEach(srv => grid.appendChild(renderServerCard(srv)));
+  } catch (err) {
+    grid.innerHTML = `<p class="text-danger col-span-full">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderServerCard(srv) {
+  const card = document.createElement('div');
+  card.className = 'bg-panel border border-border rounded-xl p-5 flex flex-col';
+
+  const diskUsed = srv.diskUsedMB || 0;
+  const diskQuota = srv.diskMB || 0;
+  const diskPct = diskQuota > 0 ? Math.min(100, Math.round((diskUsed / diskQuota) * 100)) : 0;
+  const diskCls = diskPct >= 90 ? 'danger' : diskPct >= 75 ? 'warn' : '';
+
+  const appsCount = srv.appsCount || 0;
+  const appsMax = srv.maxApps || 0;
+  const appsPct = appsMax > 0 ? Math.min(100, Math.round((appsCount / appsMax) * 100)) : 0;
+  const appsCls = appsPct >= 90 ? 'danger' : appsPct >= 75 ? 'warn' : '';
+
+  card.innerHTML = `
+    <div class="flex items-start justify-between mb-3">
+      <div class="min-w-0">
+        <div class="text-base font-bold text-white truncate">${escapeHtml(srv.name)}</div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          <i class="fas fa-user text-gray-600 mr-1"></i>${escapeHtml(srv.ownerName || srv.ownerId)}
+        </div>
+      </div>
+      <div class="flex gap-1">
+        <button class="edit-btn text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Edit">
+          <i class="fas fa-pen"></i>
+        </button>
+        <button class="del-btn text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" title="Delete">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="space-y-3 text-xs">
+      <div>
+        <div class="flex justify-between text-gray-500 mb-1">
+          <span>Disk</span>
+          <span class="font-mono text-gray-300">
+            ${diskQuota > 0 ? `${diskUsed} / ${diskQuota} MB` : `${diskUsed} MB · ∞`}
+          </span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${diskCls}" style="width:${diskPct}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-gray-500 mb-1">
+          <span>Apps</span>
+          <span class="font-mono text-gray-300">
+            ${appsMax > 0 ? `${appsCount} / ${appsMax}` : `${appsCount} · ∞`}
+          </span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${appsCls}" style="width:${appsPct}%"></div></div>
+      </div>
+      <div class="flex justify-between text-gray-500 pt-2 border-t border-border">
+        <span>RAM quota</span>
+        <span class="font-mono text-gray-400">${srv.memoryMB > 0 ? srv.memoryMB + ' MB' : '∞'}</span>
+      </div>
+      <div class="flex justify-between text-gray-500">
+        <span>CPU quota</span>
+        <span class="font-mono text-gray-400">${srv.cpuQuota > 0 ? srv.cpuQuota + '%' : '∞'}</span>
+      </div>
+      ${srv.notes ? `<p class="text-gray-500 italic pt-2 border-t border-border">${escapeHtml(srv.notes)}</p>` : ''}
+    </div>
+  `;
+
+  card.querySelector('.edit-btn').addEventListener('click', () => openServerModal(srv));
+  card.querySelector('.del-btn').addEventListener('click', () => openDeleteModal(srv));
+  return card;
+}
+
+// ---- Create/Edit ----
+
+function openServerModal(srv) {
+  currentEditID = srv ? srv.id : null;
+  document.getElementById('server-modal-title').textContent = srv ? 'Edit server' : 'Create server';
+  document.getElementById('server-id').value = srv ? srv.id : '';
+  document.getElementById('server-name').value = srv ? srv.name : '';
+  document.getElementById('server-disk').value = srv ? srv.diskMB : 0;
+  document.getElementById('server-memory').value = srv ? srv.memoryMB : 0;
+  document.getElementById('server-cpu').value = srv ? srv.cpuQuota : 0;
+  document.getElementById('server-maxapps').value = srv ? srv.maxApps : 0;
+  document.getElementById('server-notes').value = srv ? (srv.notes || '') : '';
+  document.getElementById('server-modal-error').textContent = '';
+
+  const ownerSel = document.getElementById('server-owner');
+  ownerSel.innerHTML = '<option value="">— select a user —</option>' +
+    allUsers.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.username)} (${escapeHtml(u.role)})</option>`).join('');
+  if (srv) ownerSel.value = srv.ownerId;
+
+  document.getElementById('server-modal').classList.remove('hidden');
+}
+
+function closeServerModal() {
+  document.getElementById('server-modal').classList.add('hidden');
+  currentEditID = null;
+}
+
+async function saveServer() {
+  const errEl = document.getElementById('server-modal-error');
+  errEl.textContent = '';
+
+  const payload = {
+    name: document.getElementById('server-name').value.trim(),
+    ownerId: document.getElementById('server-owner').value,
+    diskMB: parseInt(document.getElementById('server-disk').value, 10) || 0,
+    memoryMB: parseInt(document.getElementById('server-memory').value, 10) || 0,
+    cpuQuota: parseFloat(document.getElementById('server-cpu').value) || 0,
+    maxApps: parseInt(document.getElementById('server-maxapps').value, 10) || 0,
+    notes: document.getElementById('server-notes').value.trim(),
+  };
+
+  if (!payload.name) { errEl.textContent = 'Name is required'; return; }
+  if (!payload.ownerId) { errEl.textContent = 'Owner is required'; return; }
+
+  const btn = document.getElementById('btn-save-server');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+
+  try {
+    if (currentEditID) {
+      await api(`/api/admin/servers/${currentEditID}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('Server updated');
+    } else {
+      await api('/api/admin/servers', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Server created');
+    }
+    closeServerModal();
+    loadServers();
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Save';
+  }
+}
+
+// ---- Delete ----
+
+function openDeleteModal(srv) {
+  currentDeleteServer = srv;
+  document.getElementById('delete-server-name').textContent = srv.name;
+  document.getElementById('delete-apps-count').textContent = srv.appsCount || 0;
+  document.getElementById('delete-error').textContent = '';
+
+  const hasApps = (srv.appsCount || 0) > 0;
+  document.getElementById('delete-no-apps').classList.toggle('hidden', hasApps);
+  document.getElementById('delete-has-apps').classList.toggle('hidden', !hasApps);
+
+  if (hasApps) {
+    // Remplir la liste des serveurs cibles (même owner, différent de celui-ci)
+    const targetSel = document.getElementById('delete-target');
+    const candidates = allServers.filter(s => s.id !== srv.id && s.ownerId === srv.ownerId);
+    targetSel.innerHTML = '<option value="">— select a server —</option>' +
+      candidates.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+    if (candidates.length === 0) {
+      targetSel.innerHTML = '<option value="">— no other server for this owner —</option>';
+    }
+    // Reset le radio à "delete"
+    document.querySelector('input[name="del-mode"][value="delete"]').checked = true;
+    updateDeleteMode();
+  }
+
+  document.getElementById('delete-modal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+  document.getElementById('delete-modal').classList.add('hidden');
+  currentDeleteServer = null;
+}
+
+function updateDeleteMode() {
+  const mode = document.querySelector('input[name="del-mode"]:checked')?.value || 'delete';
+  const targetSel = document.getElementById('delete-target');
+  if (targetSel) targetSel.disabled = (mode !== 'move');
+}
+
+async function confirmDelete() {
+  if (!currentDeleteServer) return;
+  const errEl = document.getElementById('delete-error');
+  errEl.textContent = '';
+
+  const mode = document.querySelector('input[name="del-mode"]:checked')?.value || 'delete';
+  let url = `/api/admin/servers/${currentDeleteServer.id}?mode=${mode}`;
+
+  if (mode === 'move') {
+    const target = document.getElementById('delete-target').value;
+    if (!target) { errEl.textContent = 'Please select a target server'; return; }
+    url += `&target=${encodeURIComponent(target)}`;
+  } else {
+    url += '&confirm=true';
+  }
+
+  const btn = document.getElementById('btn-confirm-delete');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Deleting...';
+
+  try {
+    const res = await api(url, { method: 'DELETE' });
+    if (mode === 'move') {
+      toast(`Server deleted · ${res.moved} app(s) moved`);
+    } else {
+      toast(`Server deleted · ${res.deleted} app(s) removed`);
+    }
+    closeDeleteModal();
+    loadServers();
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Delete server';
+  }
+}
+</script>
+</body>
+</html>
