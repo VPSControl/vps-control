@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deploy — VPS Control</title>
+<link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { bg: '#0a0f1a', panel: '#111827', panel2: '#1a2332', border: '#1f2937', accent: '#22c55e', accentDark: '#16a34a', danger: '#ef4444' },
+    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+  }}
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+  input, select, textarea {
+    background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
+    padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; padding-right: 34px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
+  .hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
+  .hint code { background: #0a0f1a; border: 1px solid #1f2937; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; color: #22c55e; }
+  .mode-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .mode-tab {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #9ca3af;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: all .15s;
+    cursor: pointer;
+  }
+  .mode-tab.active {
+    color: #22c55e;
+    background: rgba(34,197,94,.08);
+    border-color: rgba(34,197,94,.3);
+  }
+  .mode-tab:hover:not(.active) { color: #e5e7eb; }
+  .repo-list { max-height: 280px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 8px; background: #0a0f1a; }
+  .repo-item { padding: 10px 12px; border-bottom: 1px solid #1f2937; cursor: pointer; transition: background .1s; }
+  .repo-item:last-child { border-bottom: 0; }
+  .repo-item:hover { background: #1a2332; }
+  .repo-item.selected { background: rgba(34,197,94,.1); border-left: 3px solid #22c55e; padding-left: 9px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
+  <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
+  <span class="text-sm font-semibold text-gray-300">Deploy</span>
+  <div class="w-8"></div>
+</header>
+
+<div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+
+<div class="flex min-h-screen pt-14 lg:pt-0">
+  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+    <div class="p-5 border-b border-border flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">User Panel</div></div>
+      </div>
+      <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="nav-container"></nav>
+    <div class="p-4 border-t border-border">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500 truncate" id="current-user">—</div>
+        <button id="btn-logout" class="text-xs text-accent hover:text-accentDark font-medium"><i class="fas fa-right-from-bracket"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 p-4 lg:p-8 max-w-6xl">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl lg:text-2xl font-bold text-white">Deploy</h1>
+        <p class="text-sm text-gray-500 mt-1">Create a new app on one of your servers.</p>
+      </div>
+      <a href="/servers.html" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
+        <i class="fas fa-list mr-2"></i>My apps
+      </a>
+    </div>
+
+    <!-- ============ SERVER SELECTOR ============ -->
+    <div id="server-selector-wrap" class="bg-panel border border-border rounded-xl p-4 mb-6">
+      <div class="flex items-start gap-3 mb-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent flex-shrink-0">
+          <i class="fas fa-layer-group"></i>
+        </div>
+        <div class="flex-1">
+          <h2 class="font-semibold text-white text-sm">Target server</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Every app you deploy is assigned to one of your servers. Disk and app quotas apply per server.</p>
+        </div>
+      </div>
+
+      <div id="server-select-loading" class="text-xs text-gray-500 py-2">
+        <i class="fas fa-spinner fa-spin mr-2"></i>Loading your servers...
+      </div>
+
+      <div id="server-select-empty" class="hidden text-sm py-2">
+        <div class="bg-danger/10 border border-danger/30 rounded-lg p-3 flex items-start gap-2">
+          <i class="fas fa-triangle-exclamation text-danger mt-0.5"></i>
+          <div class="text-xs text-danger">
+            <p class="font-semibold">No server assigned to your account.</p>
+            <p class="mt-1 opacity-80">Contact an admin to get a server before you can deploy anything.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="server-select-box" class="hidden">
+        <select id="server-select"></select>
+        <div id="server-info" class="mt-2 flex flex-wrap gap-3 text-[11px] text-gray-500"></div>
+      </div>
+    </div>
+
+    <!-- ============ MODE TABS ============ -->
+    <div id="mode-tabs" class="mode-tabs hidden">
+      <button class="mode-tab active" data-mode="git">GitHub (public)</button>
+      <button class="mode-tab" data-mode="github-private">My GitHub repos</button>
+      <button class="mode-tab" data-mode="upload">Import ZIP</button>
+    </div>
+
+    <!-- ============ MODE : GitHub public ============ -->
+    <section id="mode-git" class="mode-content hidden">
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fab fa-github text-gray-400"></i>From a public GitHub repo</h2>
+        <form id="form-deploy-git">
+          <label>Application name</label>
+          <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+
+          <label>Repository URL</label>
+          <input name="repoUrl" placeholder="https://github.com/user/project.git" required>
+
+          <label>Stack</label>
+          <select name="stack" class="stack-select">
+            <option value="auto">Auto-detect</option>
+            <option value="laravel">Laravel / PHP</option>
+            <option value="node">Node.js</option>
+            <option value="react">React SPA (Vite, CRA)</option>
+            <option value="next">Next.js</option>
+            <option value="astro">Astro</option>
+            <option value="sveltekit">SvelteKit</option>
+            <option value="nuxt">Nuxt</option>
+            <option value="python">Python</option>
+            <option value="static">Static site</option>
+          </select>
+
+          <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
+          <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
+
+          <div class="version-row version-node">
+            <label>Node.js version</label>
+            <select name="nodeVersion">
+              <option value="18">Node 18</option>
+              <option value="20" selected>Node 20 (LTS)</option>
+              <option value="22">Node 22</option>
+            </select>
+          </div>
+          <div class="version-row version-python hidden">
+            <label>Python version</label>
+            <select name="pythonVersion">
+              <option value="3.10">Python 3.10</option>
+              <option value="3.11">Python 3.11</option>
+              <option value="3.12" selected>Python 3.12</option>
+            </select>
+          </div>
+          <div class="version-row version-php hidden">
+            <label>PHP version</label>
+            <select name="phpVersion">
+              <option value="8.1">PHP 8.1</option>
+              <option value="8.2">PHP 8.2</option>
+              <option value="8.3" selected>PHP 8.3</option>
+            </select>
+          </div>
+
+          <label>Port exposed on the VPS</label>
+          <div class="flex gap-2">
+            <input name="port" placeholder="auto (8080, 8081...)" class="flex-1">
+            <button type="button" class="btn-secondary suggest-port-btn px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap">
+              <i class="fas fa-magnifying-glass"></i>
+            </button>
+          </div>
+          <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
+
+          <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fas fa-rocket mr-2"></i>Deploy now
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ MODE : Mes repos GitHub ============ -->
+    <section id="mode-github-private" class="mode-content hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-panel border border-border rounded-xl p-5">
+          <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
+            <i class="fab fa-github text-gray-400"></i>Your repositories
+            <button id="gh-refresh-repos" class="ml-auto text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+              <i class="fas fa-rotate"></i>
+            </button>
+          </h2>
+
+          <div id="gh-not-connected" class="hidden text-sm text-gray-400 p-4 rounded-lg bg-bg border border-border">
+            <p class="mb-3"><i class="fas fa-info-circle text-accent mr-2"></i>GitHub account not connected.</p>
+            <a href="/tokens.html" class="inline-block px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+              <i class="fab fa-github mr-1"></i>Connect GitHub
+            </a>
+          </div>
+
+          <div id="gh-connected-repos" class="hidden">
+            <input id="gh-repo-search" placeholder="Search repositories..." class="mb-3">
+            <div id="gh-repo-list" class="repo-list">
+              <div class="text-center text-gray-500 text-xs py-4">Loading...</div>
+            </div>
+            <p class="hint mt-2">Only repos where you have push access are shown.</p>
+          </div>
+        </div>
+
+        <div class="bg-panel border border-border rounded-xl p-5">
+          <h2 class="font-semibold text-white mb-4">Deployment</h2>
+          <div id="gh-deploy-empty" class="text-sm text-gray-500 py-6 text-center">
+            <i class="fas fa-arrow-left text-2xl text-gray-600 mb-3"></i>
+            <p>Select a repository on the left to configure the deployment.</p>
+          </div>
+
+          <form id="form-deploy-github" class="hidden">
+            <input type="hidden" name="repoFullName">
+            <input type="hidden" name="cloneUrl">
+
+            <div class="bg-bg border border-border rounded-lg p-3 mb-4">
+              <p class="text-xs text-gray-500">Selected repository</p>
+              <p class="text-sm font-semibold text-white truncate" id="gh-selected-repo">—</p>
+            </div>
+
+            <label>Application name</label>
+            <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+            <p class="hint">Lowercase letters, digits, dashes. Must be unique.</p>
+
+            <label>Stack</label>
+            <select name="stack" class="stack-select">
+              <option value="auto">Auto-detect</option>
+              <option value="laravel">Laravel / PHP</option>
+              <option value="node">Node.js</option>
+              <option value="react">React SPA (Vite, CRA)</option>
+              <option value="next">Next.js</option>
+              <option value="astro">Astro</option>
+              <option value="sveltekit">SvelteKit</option>
+              <option value="nuxt">Nuxt</option>
+              <option value="python">Python</option>
+              <option value="static">Static site</option>
+            </select>
+
+            <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
+            <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
+
+            <div class="version-row version-node">
+              <label>Node.js version</label>
+              <select name="nodeVersion">
+                <option value="18">Node 18</option>
+                <option value="20" selected>Node 20 (LTS)</option>
+                <option value="22">Node 22</option>
+              </select>
+            </div>
+            <div class="version-row version-python hidden">
+              <label>Python version</label>
+              <select name="pythonVersion">
+                <option value="3.10">Python 3.10</option>
+                <option value="3.11">Python 3.11</option>
+                <option value="3.12" selected>Python 3.12</option>
+              </select>
+            </div>
+            <div class="version-row version-php hidden">
+              <label>PHP version</label>
+              <select name="phpVersion">
+                <option value="8.1">PHP 8.1</option>
+                <option value="8.2">PHP 8.2</option>
+                <option value="8.3" selected>PHP 8.3</option>
+              </select>
+            </div>
+
+            <label>Port exposed on the VPS</label>
+            <input name="port" placeholder="auto (8080, 8081...)">
+            <p class="hint">Leave empty to auto-assign.</p>
+
+            <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+              <i class="fab fa-github mr-2"></i>Clone & Deploy
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODE : Import ZIP ============ -->
+    <section id="mode-upload" class="mode-content hidden">
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
+        <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fas fa-file-zipper text-gray-400"></i>From a .zip file</h2>
+        <form id="form-deploy-upload">
+          <label>Application name</label>
+          <input name="name" placeholder="my-app" pattern="[a-z0-9-]+" required>
+
+          <label>Project .zip archive (max 30 MB)</label>
+          <input type="file" name="archive" accept=".zip" required>
+
+          <label>Port exposed on the VPS</label>
+          <div class="flex gap-2">
+            <input name="port" placeholder="auto (8080, 8081...)" class="flex-1">
+            <button type="button" class="btn-secondary suggest-port-btn px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap">
+              <i class="fas fa-magnifying-glass"></i>
+            </button>
+          </div>
+          <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
+
+          <p class="text-xs text-gray-500 mt-3 leading-relaxed">
+            The ZIP is extracted in the app folder. You'll be redirected to a config page to review files, edit if needed, then deploy.
+          </p>
+
+          <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fas fa-file-import mr-2"></i>Import &amp; configure
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <p id="deploy-status" class="text-sm text-gray-500 mt-6"></p>
+  </main>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
+
+<script src="/app.js"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('sidebar-overlay');
+document.getElementById('btn-menu')?.addEventListener('click', () => { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); });
+document.getElementById('btn-close-sidebar')?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); });
+
+// Nav USER : uniquement Dashboard, My apps, Deploy, API Tokens
+function buildUserNav(active) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+  ];
+  document.getElementById('nav-container').innerHTML = items.map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
+let allRepos = [];
+let selectedRepo = null;
+let myServers = [];
+let selectedServerId = null;
+
+(async function() {
+  const me = await requireAuth();
+  if (!me) return;
+  window.currentUser = me;
+  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
+
+  // Rediriger les admins vers la page admin (pour éviter la confusion)
+  if (me.role === 'admin') {
+    location.href = '/deploy.html';
+    return;
+  }
+
+  buildUserNav('deploy');
+
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/index.html';
+  });
+
+  await loadMyServers();
+
+  if (myServers.length === 0) {
+    document.getElementById('server-select-loading').classList.add('hidden');
+    document.getElementById('server-select-empty').classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('server-select-loading').classList.add('hidden');
+  document.getElementById('server-select-box').classList.remove('hidden');
+  document.getElementById('mode-tabs').classList.remove('hidden');
+  document.getElementById('mode-git').classList.remove('hidden');
+
+  document.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.mode-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('mode-' + btn.dataset.mode).classList.remove('hidden');
+      if (btn.dataset.mode === 'github-private') loadGithubRepos();
+    });
+  });
+
+  ['#form-deploy-git', '#form-deploy-github', '#form-deploy-upload'].forEach(sel => {
+    const form = document.querySelector(sel);
+    if (!form) return;
+    const stackSel = form.querySelector('.stack-select');
+    if (stackSel) {
+      stackSel.addEventListener('change', () => updateVersionVisibility(stackSel));
+      updateVersionVisibility(stackSel);
+    }
+    const btn = form.querySelector('.suggest-port-btn');
+    if (btn) btn.addEventListener('click', () => suggestPort(form));
+  });
+
+  document.getElementById('form-deploy-git').addEventListener('submit', submitGit);
+  document.getElementById('form-deploy-github').addEventListener('submit', submitGithubImport);
+  document.getElementById('form-deploy-upload').addEventListener('submit', submitUpload);
+})();
+
+async function loadMyServers() {
+  try {
+    myServers = await api('/api/servers/mine') || [];
+    if (myServers.length === 0) return;
+
+    const sel = document.getElementById('server-select');
+    sel.innerHTML = myServers.map(s => {
+      const disk = s.diskMB > 0 ? `${s.diskUsedMB}/${s.diskMB} MB` : `${s.diskUsedMB} MB`;
+      const apps = s.maxApps > 0 ? `${s.appsCount}/${s.maxApps} apps` : `${s.appsCount} apps`;
+      return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} — ${disk} · ${apps}</option>`;
+    }).join('');
+
+    sel.addEventListener('change', onServerChange);
+    selectedServerId = myServers[0].id;
+    onServerChange();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function onServerChange() {
+  const sel = document.getElementById('server-select');
+  selectedServerId = sel.value;
+  const srv = myServers.find(s => s.id === selectedServerId);
+  if (!srv) return;
+
+  const info = document.getElementById('server-info');
+  const diskTxt = srv.diskMB > 0 ? `${srv.diskUsedMB}/${srv.diskMB} MB` : `${srv.diskUsedMB} MB (∞)`;
+  const appsTxt = srv.maxApps > 0 ? `${srv.appsCount}/${srv.maxApps}` : `${srv.appsCount} (∞)`;
+  const memTxt = srv.memoryMB > 0 ? `${srv.memoryMB} MB` : '∞';
+  const cpuTxt = srv.cpuQuota > 0 ? `${srv.cpuQuota}%` : '∞';
+
+  info.innerHTML = `
+    <span><i class="fas fa-hard-drive mr-1"></i>Disk ${escapeHtml(diskTxt)}</span>
+    <span><i class="fas fa-cube mr-1"></i>Apps ${escapeHtml(appsTxt)}</span>
+    <span><i class="fas fa-microchip mr-1"></i>RAM ${escapeHtml(memTxt)}</span>
+    <span><i class="fas fa-bolt mr-1"></i>CPU ${escapeHtml(cpuTxt)}</span>
+  `;
+}
+
+async function loadGithubRepos() {
+  const notConnected = document.getElementById('gh-not-connected');
+  const connected = document.getElementById('gh-connected-repos');
+  try {
+    const status = await api('/api/github/status');
+    if (!status.connected) {
+      notConnected.classList.remove('hidden');
+      connected.classList.add('hidden');
+      return;
+    }
+    notConnected.classList.add('hidden');
+    connected.classList.remove('hidden');
+
+    const list = document.getElementById('gh-repo-list');
+    list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading repositories...</div>';
+
+    const repos = await api('/api/github/repos');
+    allRepos = repos || [];
+    renderRepoList();
+  } catch (err) {
+    toast(err.message, true);
+    document.getElementById('gh-repo-list').innerHTML =
+      `<div class="text-center text-danger text-xs py-4">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRepoList() {
+  const list = document.getElementById('gh-repo-list');
+  const q = (document.getElementById('gh-repo-search').value || '').toLowerCase().trim();
+  const filtered = q === '' ? allRepos : allRepos.filter(r =>
+    (r.full_name || '').toLowerCase().includes(q) ||
+    (r.description || '').toLowerCase().includes(q)
+  );
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4">No repository found.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  filtered.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'repo-item' + (selectedRepo && selectedRepo.full_name === r.full_name ? ' selected' : '');
+    div.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium text-white truncate">
+            ${r.private ? '<i class="fas fa-lock text-amber-400 mr-1 text-xs"></i>' : '<i class="fas fa-book text-gray-500 mr-1 text-xs"></i>'}
+            ${escapeHtml(r.full_name)}
+          </div>
+          ${r.description ? `<div class="text-xs text-gray-500 truncate mt-0.5">${escapeHtml(r.description)}</div>` : ''}
+        </div>
+        <div class="text-[10px] text-gray-600 whitespace-nowrap">${r.default_branch || 'main'}</div>
+      </div>`;
+    div.addEventListener('click', () => selectRepo(r));
+    list.appendChild(div);
+  });
+}
+
+function selectRepo(r) {
+  selectedRepo = r;
+  renderRepoList();
+  document.getElementById('gh-deploy-empty').classList.add('hidden');
+  const form = document.getElementById('form-deploy-github');
+  form.classList.remove('hidden');
+  form.querySelector('input[name="repoFullName"]').value = r.full_name;
+  form.querySelector('input[name="cloneUrl"]').value = r.clone_url;
+  const defaultName = r.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  form.querySelector('input[name="name"]').value = defaultName;
+  document.getElementById('gh-selected-repo').textContent = r.full_name;
+}
+
+document.getElementById('gh-refresh-repos')?.addEventListener('click', loadGithubRepos);
+document.getElementById('gh-repo-search')?.addEventListener('input', renderRepoList);
+
+async function submitGit(e) {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(e.target));
+  fd.serverId = selectedServerId;
+  document.getElementById('deploy-status').textContent = 'Cloning & building... this can take a minute or two.';
+  try {
+    const dep = await api('/api/deploy/git', { method:'POST', body: JSON.stringify(fd) });
+    toast(`App "${fd.name}" deployed`);
+    location.href = `/server.html?id=${dep.id}&tab=console`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+}
+
+async function submitGithubImport(e) {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(e.target));
+  fd.serverId = selectedServerId;
+  document.getElementById('deploy-status').textContent = 'Cloning (authenticated) & building...';
+  try {
+    const dep = await api('/api/github/import', { method:'POST', body: JSON.stringify(fd) });
+    toast(`App "${fd.name}" deployed`);
+    location.href = `/server.html?id=${dep.id}&tab=console`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+}
+
+async function submitUpload(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  fd.append('serverId', selectedServerId);
+  document.getElementById('deploy-status').textContent = 'Uploading and extracting...';
+  try {
+    const dep = await api('/api/deploy/upload', { method:'POST', body: fd });
+    const subdirMsg = dep.appSubdir ? ` (subdir: ${dep.appSubdir})` : '';
+    toast(`Files extracted${subdirMsg}. Configure and deploy.`);
+    location.href = `/server.html?id=${dep.id}&tab=files`;
+  } catch (err) {
+    document.getElementById('deploy-status').textContent = '';
+    toast(err.message, true);
+  }
+}
+
+function updateVersionVisibility(select) {
+  const form = select.closest('form');
+  const value = select.value;
+  const nodeRow = form.querySelector('.version-node');
+  const pythonRow = form.querySelector('.version-python');
+  const phpRow = form.querySelector('.version-php');
+  const nodeStacks = ['auto','node','react','next','astro','sveltekit','nuxt'];
+  const pythonStacks = ['auto','python'];
+  const phpStacks = ['auto','laravel'];
+  if (nodeRow) nodeRow.classList.toggle('hidden', !nodeStacks.includes(value));
+  if (pythonRow) pythonRow.classList.toggle('hidden', !pythonStacks.includes(value));
+  if (phpRow) phpRow.classList.toggle('hidden', !phpStacks.includes(value));
+}
+
+async function suggestPort(form) {
+  const stackSel = form.querySelector('.stack-select');
+  const repoInput = form.querySelector('input[name="repoUrl"]');
+  const portInput = form.querySelector('input[name="port"]');
+  const hint = form.querySelector('.port-hint');
+  const btn = form.querySelector('.suggest-port-btn');
+  const stack = stackSel ? stackSel.value : 'auto';
+  const repoUrl = repoInput ? repoInput.value.trim() : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  if (hint) hint.textContent = 'Detecting...';
+  try {
+    const params = new URLSearchParams({ stack });
+    if (repoUrl) params.set('repoUrl', repoUrl);
+    const res = await api(`/api/deploy/suggest-port?${params.toString()}`);
+    if (portInput) portInput.value = res.hostPort;
+    const autoMsg = res.autoAssigned ? ' (auto)' : '';
+    if (hint) hint.textContent = `internal: ${res.internalPort} — ${res.source}${autoMsg}`;
+    toast(`Suggested: ${res.hostPort}`);
+  } catch (err) {
+    if (hint) hint.textContent = '';
+    toast(err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magnifying-glass"></i>'; }
+  }
+}
+</script>
+</body>
+</html>
