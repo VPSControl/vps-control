@@ -46,6 +46,8 @@ tailwind.config = {
   .console-line .edit-btn { opacity: 0; transition: opacity .15s; flex-shrink: 0; }
   .console-line:hover .edit-btn { opacity: 1; }
   .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .field-help { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
+  .field-help code { padding: 1px 5px; font-size: 10.5px; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -92,6 +94,7 @@ tailwind.config = {
         <span id="app-status" class="inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-panel2 text-gray-400">—</span>
       </div>
       <p class="text-[11px] mono text-gray-500 mt-2 truncate" id="app-domain">—</p>
+      <p class="text-[10px] mono text-gray-600 mt-1 truncate" id="app-subdir" title=""></p>
     </div>
     <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="app-nav-container"></nav>
     <div class="p-4 border-t border-border text-[11px] text-gray-500">
@@ -427,6 +430,18 @@ tailwind.config = {
               <option value="static">Static</option>
             </select>
           </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">App subdirectory</label>
+            <div class="flex gap-2">
+              <input id="set-app-subdir" placeholder="empty = repo root (e.g. backend, apps/api)" class="flex-1">
+              <button type="button" id="btn-detect-subdir" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-xs text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap" title="Re-detect automatically">
+                <i class="fas fa-wand-magic-sparkles mr-1"></i>Auto
+              </button>
+            </div>
+            <p class="field-help">Where the app actually lives inside the repo. Use <code>backend</code> or <code>apps/api</code> if the project isn't at the root. Leave empty if the app is at the root.</p>
+          </div>
+
           <div class="version-row version-node">
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Node.js version</label>
             <select id="set-node-version">
@@ -548,7 +563,6 @@ tailwind.config = {
     </div>
   </div>
 </div>
-
 
 <div id="backup-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
   <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
@@ -775,6 +789,16 @@ async function loadApp() {
     document.getElementById('app-domain').textContent = currentApp.status === 'draft' ? 'Not deployed yet' : `http://${location.hostname}:${currentApp.port}`;
     document.getElementById('app-role').textContent = currentApp.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
 
+    // Afficher le sous-dossier effectif dans la sidebar
+    const subdirEl = document.getElementById('app-subdir');
+    if (currentApp.appSubdir) {
+      subdirEl.textContent = `📁 ${currentApp.appSubdir}/`;
+      subdirEl.title = `App subdirectory: ${currentApp.appSubdir}`;
+    } else {
+      subdirEl.textContent = '📁 (repo root)';
+      subdirEl.title = 'App is at the repo root';
+    }
+
     if (currentApp.status === 'draft') {
       document.getElementById('draft-banner').classList.remove('hidden');
       document.getElementById('app-status').textContent = 'Draft';
@@ -854,10 +878,8 @@ async function initConsole() {
     document.getElementById('console-status-text').textContent = res.status || 'unknown';
     document.getElementById('console-status-dot').className = 'w-2 h-2 rounded-full ' + (isRunning ? 'bg-accent' : 'bg-danger');
 
-    // Handle parsed errors
     if (res.lastParsed) {
       showErrorBanner(res.lastError, res.finishedAt);
-      // Store for the "Open in editor" button
       window._lastParsedError = res.lastParsed;
       const btn = document.getElementById('btn-edit-error');
       btn.classList.remove('hidden');
@@ -906,7 +928,6 @@ function appendConsoleLine(tag, text, cls = '', parsedErrors = null) {
   if (tag) inner += `<span class="console-tag">${escapeHtml(tag)}</span> `;
   inner += `<span class="flex-1 break-all">${escapeHtml(text)}</span>`;
 
-  // Look for a matching parsed error in this line
   if (parsedErrors && Array.isArray(parsedErrors)) {
     const match = parsedErrors.find(pe => text.includes(pe.raw) || text.includes(pe.file));
     if (match) {
@@ -1610,6 +1631,7 @@ document.getElementById('btn-confirm-schedule').addEventListener('click', async 
 // ============ SETTINGS ============
 function loadAppSettings() {
   document.getElementById('set-stack').value = currentApp.stack === 'auto' ? 'node' : (currentApp.stack || 'node');
+  document.getElementById('set-app-subdir').value = currentApp.appSubdir || '';
   document.getElementById('set-node-version').value = currentApp.nodeVersion || '20';
   document.getElementById('set-python-version').value = currentApp.pythonVersion || '3.12';
   document.getElementById('set-php-version').value = currentApp.phpVersion || '8.3';
@@ -1625,12 +1647,52 @@ function updateSettingsVisibility() {
 }
 document.getElementById('set-stack').addEventListener('change', updateSettingsVisibility);
 
+// Bouton "Auto" pour re-détecter le sous-dossier
+document.getElementById('btn-detect-subdir').addEventListener('click', async () => {
+  const input = document.getElementById('set-app-subdir');
+  const btn = document.getElementById('btn-detect-subdir');
+  btn.disabled = true;
+  const oldHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  try {
+    // On envoie "auto" au backend ; il renvoie la valeur détectée sans    // nécessairement rebuild (changed=false si identique).
+    const res = await api(`/api/deployments/${currentApp.id}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ appSubdir: 'auto' }),
+    });
+    if (res.deployment && typeof res.deployment.appSubdir !== 'undefined') {
+      input.value = res.deployment.appSubdir || '';
+      currentApp.appSubdir = res.deployment.appSubdir || '';
+      // Mettre à jour l'affichage sidebar
+      const subdirEl = document.getElementById('app-subdir');
+      if (currentApp.appSubdir) {
+        subdirEl.textContent = `📁 ${currentApp.appSubdir}/`;
+      } else {
+        subdirEl.textContent = '📁 (repo root)';
+      }
+      toast(res.changed ? 'Subdirectory updated, container rebuilt' : 'Subdirectory re-detected (no change)');
+      if (res.changed) {
+        // Recharger après rebuild
+        setTimeout(() => location.reload(), 1000);
+      }
+    } else {
+      toast('Detection returned no value');
+    }
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldHTML;
+  }
+});
+
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
   if (!currentApp) return;
   const status = document.getElementById('settings-status');
   status.textContent = 'Saving and rebuilding... this can take a minute or two.';
   const payload = {
     stack: document.getElementById('set-stack').value,
+    appSubdir: document.getElementById('set-app-subdir').value.trim(),
     nodeVersion: document.getElementById('set-node-version').value,
     pythonVersion: document.getElementById('set-python-version').value,
     phpVersion: document.getElementById('set-php-version').value,
