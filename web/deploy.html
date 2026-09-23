@@ -31,7 +31,7 @@ tailwind.config = {
   label { display: block; font-size: 12px; font-weight: 600; color: #9ca3af; margin: 12px 0 6px; }
   .hint { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
   .hint code { background: #0a0f1a; border: 1px solid #1f2937; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; color: #22c55e; }
-  .mode-tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+  .mode-tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
   .mode-tab {
     padding: 10px 16px;
     border-radius: 8px;
@@ -87,21 +87,52 @@ tailwind.config = {
   <main class="flex-1 min-w-0 p-4 lg:p-8 max-w-6xl">
     <h1 class="text-xl lg:text-2xl font-bold text-white mb-6">Deploy</h1>
 
-    <div class="bg-accent/10 border border-accent/30 rounded-xl p-4 mb-6 flex items-start gap-3">
-      <i class="fas fa-circle-info text-accent mt-0.5"></i>
-      <div class="text-sm text-accent">
-        <strong>Import ZIP</strong> : les fichiers sont extraits dans le dossier de l'app, tu es redirigé vers la page de configuration, puis tu peux déployer quand tu veux. <strong>GitHub public</strong> : déploiement direct. <strong>Mes repos GitHub</strong> : pour les repos privés ou d'organisation (nécessite un token connecté dans <a href="/tokens.html" class="underline">API Tokens → GitHub</a>).
+    <!-- ============ SERVER SELECTOR (L3) ============ -->
+    <div id="server-selector-wrap" class="bg-panel border border-border rounded-xl p-4 mb-6">
+      <div class="flex items-start gap-3 mb-3">
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent flex-shrink-0">
+          <i class="fas fa-layer-group"></i>
+        </div>
+        <div class="flex-1">
+          <h2 class="font-semibold text-white text-sm">Target server</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Every deployment must be assigned to one of your servers. Quotas (disk, max apps) apply per server.</p>
+        </div>
+      </div>
+
+      <div id="server-select-loading" class="text-xs text-gray-500 py-2">
+        <i class="fas fa-spinner fa-spin mr-2"></i>Loading your servers...
+      </div>
+
+      <div id="server-select-empty" class="hidden text-sm py-2">
+        <div class="bg-danger/10 border border-danger/30 rounded-lg p-3 flex items-start gap-2">
+          <i class="fas fa-triangle-exclamation text-danger mt-0.5"></i>
+          <div class="text-xs text-danger">
+            <p class="font-semibold">No server assigned to your account.</p>
+            <p class="mt-1 opacity-80">
+              <span id="server-empty-hint">Contact an admin to get a server before deploying.</span>
+              <a href="/servers-admin.html" id="server-empty-admin-link" class="hidden underline hover:no-underline">Create one now →</a>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div id="server-select-box" class="hidden">
+        <select id="server-select"></select>
+        <div id="server-info" class="mt-2 flex flex-wrap gap-3 text-[11px] text-gray-500">
+          <!-- rempli par JS -->
+        </div>
       </div>
     </div>
 
-    <div class="mode-tabs">
+    <!-- ============ MODE TABS ============ -->
+    <div id="mode-tabs" class="mode-tabs hidden">
       <button class="mode-tab active" data-mode="git">GitHub (public)</button>
       <button class="mode-tab" data-mode="github-private">Mes repos GitHub</button>
       <button class="mode-tab" data-mode="upload">Import ZIP</button>
     </div>
 
     <!-- ============ MODE : GitHub public ============ -->
-    <section id="mode-git" class="mode-content">
+    <section id="mode-git" class="mode-content hidden">
       <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
         <h2 class="font-semibold text-white mb-4 flex items-center gap-2"><i class="fab fa-github text-gray-400"></i>From a public GitHub repo</h2>
         <form id="form-deploy-git">
@@ -127,7 +158,7 @@ tailwind.config = {
 
           <label>App subdirectory <span class="text-gray-500 font-normal normal-case">(optional)</span></label>
           <input name="appSubdir" placeholder="auto — leave empty to auto-detect">
-          <p class="hint">If your project lives in a subfolder of the repo, specify it here. Leave empty to auto-detect.</p>
+          <p class="hint">If your project lives in a subfolder of the repo, specify it here.</p>
 
           <div class="version-row version-node">
             <label>Node.js version</label>
@@ -170,10 +201,9 @@ tailwind.config = {
       </div>
     </section>
 
-    <!-- ============ MODE : Mes repos GitHub (privés) ============ -->
+    <!-- ============ MODE : Mes repos GitHub ============ -->
     <section id="mode-github-private" class="mode-content hidden">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Liste des repos -->
         <div class="bg-panel border border-border rounded-xl p-5">
           <h2 class="font-semibold text-white mb-4 flex items-center gap-2">
             <i class="fab fa-github text-gray-400"></i>Your repositories
@@ -198,7 +228,6 @@ tailwind.config = {
           </div>
         </div>
 
-        <!-- Formulaire de déploiement -->
         <div class="bg-panel border border-border rounded-xl p-5">
           <h2 class="font-semibold text-white mb-4">Deployment</h2>
           <div id="gh-deploy-empty" class="text-sm text-gray-500 py-6 text-center">
@@ -294,7 +323,7 @@ tailwind.config = {
           <p class="port-hint text-xs text-gray-500 mt-1 font-mono"></p>
 
           <p class="text-xs text-gray-500 mt-3 leading-relaxed">
-            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer. Le sous-dossier de l'app sera détecté automatiquement.
+            Le ZIP est extrait dans le dossier de l'app. Tu seras redirigé vers la page de configuration pour vérifier les fichiers, éditer si besoin, puis déployer.
           </p>
 
           <button type="submit" class="w-full mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
@@ -321,7 +350,8 @@ overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-f
 function buildNav(active, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
-    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
     { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
     { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
     { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
@@ -338,6 +368,8 @@ function buildNav(active, isAdmin) {
 
 let allRepos = [];
 let selectedRepo = null;
+let myServers = [];
+let selectedServerId = null;
 
 (async function() {
   const me = await requireAuth({ adminOnly: true });
@@ -350,6 +382,26 @@ let selectedRepo = null;
     location.href = '/index.html';
   });
 
+  // ---- Chargement des serveurs (bloquant) ----
+  await loadMyServers();
+
+  // Si l'utilisateur n'a aucun serveur, on bloque tout.
+  if (myServers.length === 0) {
+    document.getElementById('server-select-loading').classList.add('hidden');
+    document.getElementById('server-select-empty').classList.remove('hidden');
+    if (me.role === 'admin') {
+      document.getElementById('server-empty-hint').classList.add('hidden');
+      document.getElementById('server-empty-admin-link').classList.remove('hidden');
+    }
+    return; // on ne charge pas les modes
+  }
+
+  // Sinon, on affiche le sélecteur + les onglets + le mode par défaut.
+  document.getElementById('server-select-loading').classList.add('hidden');
+  document.getElementById('server-select-box').classList.remove('hidden');
+  document.getElementById('mode-tabs').classList.remove('hidden');
+  document.getElementById('mode-git').classList.remove('hidden');
+
   // Tabs
   document.querySelectorAll('.mode-tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -361,7 +413,7 @@ let selectedRepo = null;
     });
   });
 
-  // Suggest-port buttons et version visibility
+  // Suggest-port + version visibility sur les 3 formulaires
   ['#form-deploy-git', '#form-deploy-github', '#form-deploy-upload'].forEach(sel => {
     const form = document.querySelector(sel);
     if (!form) return;
@@ -373,54 +425,62 @@ let selectedRepo = null;
     const btn = form.querySelector('.suggest-port-btn');
     if (btn) btn.addEventListener('click', () => suggestPort(form));
   });
+
+  // Submit handlers
+  document.getElementById('form-deploy-git').addEventListener('submit', submitGit);
+  document.getElementById('form-deploy-github').addEventListener('submit', submitGithubImport);
+  document.getElementById('form-deploy-upload').addEventListener('submit', submitUpload);
 })();
 
-// ---- Onglets mode ----
-document.querySelectorAll('.mode-tab').forEach(btn => {
-  // déjà attaché ci-dessus
-});
+// =====================================================================
+// Serveurs
+// =====================================================================
 
-function updateVersionVisibility(select) {
-  const form = select.closest('form');
-  const value = select.value;
-  const nodeRow = form.querySelector('.version-node');
-  const pythonRow = form.querySelector('.version-python');
-  const phpRow = form.querySelector('.version-php');
-  const nodeStacks = ['auto','node','react','next','astro','sveltekit','nuxt'];
-  const pythonStacks = ['auto','python'];
-  const phpStacks = ['auto','laravel'];
-  if (nodeRow) nodeRow.classList.toggle('hidden', !nodeStacks.includes(value));
-  if (pythonRow) pythonRow.classList.toggle('hidden', !pythonStacks.includes(value));
-  if (phpRow) phpRow.classList.toggle('hidden', !phpStacks.includes(value));
-}
-
-async function suggestPort(form) {
-  const stackSel = form.querySelector('.stack-select');
-  const repoInput = form.querySelector('input[name="repoUrl"]');
-  const portInput = form.querySelector('input[name="port"]');
-  const hint = form.querySelector('.port-hint');
-  const btn = form.querySelector('.suggest-port-btn');
-  const stack = stackSel ? stackSel.value : 'auto';
-  const repoUrl = repoInput ? repoInput.value.trim() : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
-  if (hint) hint.textContent = 'Detecting...';
+async function loadMyServers() {
   try {
-    const params = new URLSearchParams({ stack });
-    if (repoUrl) params.set('repoUrl', repoUrl);
-    const res = await api(`/api/deploy/suggest-port?${params.toString()}`);
-    if (portInput) portInput.value = res.hostPort;
-    const autoMsg = res.autoAssigned ? ' (auto)' : '';
-    if (hint) hint.textContent = `internal: ${res.internalPort} — ${res.source}${autoMsg}`;
-    toast(`Suggested: ${res.hostPort}`);
+    myServers = await api('/api/servers/mine') || [];
+    if (myServers.length === 0) return;
+
+    // Remplir le <select>
+    const sel = document.getElementById('server-select');
+    sel.innerHTML = myServers.map(s => {
+      const disk = s.diskMB > 0 ? `${s.diskUsedMB}/${s.diskMB} MB` : `${s.diskUsedMB} MB`;
+      const apps = s.maxApps > 0 ? `${s.appsCount}/${s.maxApps} apps` : `${s.appsCount} apps`;
+      return `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} — ${disk} · ${apps}</option>`;
+    }).join('');
+
+    sel.addEventListener('change', onServerChange);
+    selectedServerId = myServers[0].id;
+    onServerChange();
   } catch (err) {
-    if (hint) hint.textContent = '';
     toast(err.message, true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magnifying-glass"></i>'; }
   }
 }
 
-// ============ GitHub repos ============
+function onServerChange() {
+  const sel = document.getElementById('server-select');
+  selectedServerId = sel.value;
+  const srv = myServers.find(s => s.id === selectedServerId);
+  if (!srv) return;
+
+  const info = document.getElementById('server-info');
+  const diskTxt = srv.diskMB > 0 ? `${srv.diskUsedMB}/${srv.diskMB} MB` : `${srv.diskUsedMB} MB (∞)`;
+  const appsTxt = srv.maxApps > 0 ? `${srv.appsCount}/${srv.maxApps}` : `${srv.appsCount} (∞)`;
+  const memTxt = srv.memoryMB > 0 ? `${srv.memoryMB} MB` : '∞';
+  const cpuTxt = srv.cpuQuota > 0 ? `${srv.cpuQuota}%` : '∞';
+
+  info.innerHTML = `
+    <span><i class="fas fa-hard-drive mr-1"></i>Disk ${escapeHtml(diskTxt)}</span>
+    <span><i class="fas fa-cube mr-1"></i>Apps ${escapeHtml(appsTxt)}</span>
+    <span><i class="fas fa-microchip mr-1"></i>RAM ${escapeHtml(memTxt)}</span>
+    <span><i class="fas fa-bolt mr-1"></i>CPU ${escapeHtml(cpuTxt)}</span>
+  `;
+}
+
+// =====================================================================
+// GitHub repos (mode privé)
+// =====================================================================
+
 async function loadGithubRepos() {
   const notConnected = document.getElementById('gh-not-connected');
   const connected = document.getElementById('gh-connected-repos');
@@ -480,10 +540,7 @@ function renderRepoList() {
 
 function selectRepo(r) {
   selectedRepo = r;
-  document.querySelectorAll('.repo-item').forEach(el => el.classList.remove('selected'));
-  document.querySelectorAll('.repo-item').forEach(el => {
-    if (el.textContent.includes(r.full_name)) el.classList.add('selected');
-  });
+  renderRepoList();
 
   document.getElementById('gh-deploy-empty').classList.add('hidden');
   const form = document.getElementById('form-deploy-github');
@@ -491,7 +548,6 @@ function selectRepo(r) {
   form.querySelector('input[name="repoFullName"]').value = r.full_name;
   form.querySelector('input[name="cloneUrl"]').value = r.clone_url;
 
-  // Pré-remplir le nom avec le nom du repo (slugifié)
   const defaultName = r.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
   form.querySelector('input[name="name"]').value = defaultName;
 
@@ -501,10 +557,14 @@ function selectRepo(r) {
 document.getElementById('gh-refresh-repos')?.addEventListener('click', loadGithubRepos);
 document.getElementById('gh-repo-search')?.addEventListener('input', renderRepoList);
 
-// ============ Form : GitHub public ============
-document.getElementById('form-deploy-git').addEventListener('submit', async (e) => {
+// =====================================================================
+// Submit handlers
+// =====================================================================
+
+async function submitGit(e) {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.target));
+  fd.serverId = selectedServerId;
   document.getElementById('deploy-status').textContent = 'Cloning & building... this can take a minute or two.';
   try {
     const dep = await api('/api/deploy/git', { method:'POST', body: JSON.stringify(fd) });
@@ -514,12 +574,12 @@ document.getElementById('form-deploy-git').addEventListener('submit', async (e) 
     document.getElementById('deploy-status').textContent = '';
     toast(err.message, true);
   }
-});
+}
 
-// ============ Form : GitHub privé ============
-document.getElementById('form-deploy-github').addEventListener('submit', async (e) => {
+async function submitGithubImport(e) {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(e.target));
+  fd.serverId = selectedServerId;
   document.getElementById('deploy-status').textContent = 'Cloning (authenticated) & building...';
   try {
     const dep = await api('/api/github/import', { method:'POST', body: JSON.stringify(fd) });
@@ -529,12 +589,12 @@ document.getElementById('form-deploy-github').addEventListener('submit', async (
     document.getElementById('deploy-status').textContent = '';
     toast(err.message, true);
   }
-});
+}
 
-// ============ Form : Upload ZIP ============
-document.getElementById('form-deploy-upload').addEventListener('submit', async (e) => {
+async function submitUpload(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
+  fd.append('serverId', selectedServerId);
   document.getElementById('deploy-status').textContent = 'Uploading and extracting...';
   try {
     const dep = await api('/api/deploy/upload', { method:'POST', body: fd });
@@ -545,7 +605,51 @@ document.getElementById('form-deploy-upload').addEventListener('submit', async (
     document.getElementById('deploy-status').textContent = '';
     toast(err.message, true);
   }
-});
+}
+
+// =====================================================================
+// Helpers UI
+// =====================================================================
+
+function updateVersionVisibility(select) {
+  const form = select.closest('form');
+  const value = select.value;
+  const nodeRow = form.querySelector('.version-node');
+  const pythonRow = form.querySelector('.version-python');
+  const phpRow = form.querySelector('.version-php');
+  const nodeStacks = ['auto','node','react','next','astro','sveltekit','nuxt'];
+  const pythonStacks = ['auto','python'];
+  const phpStacks = ['auto','laravel'];
+  if (nodeRow) nodeRow.classList.toggle('hidden', !nodeStacks.includes(value));
+  if (pythonRow) pythonRow.classList.toggle('hidden', !pythonStacks.includes(value));
+  if (phpRow) phpRow.classList.toggle('hidden', !phpStacks.includes(value));
+}
+
+async function suggestPort(form) {
+  const stackSel = form.querySelector('.stack-select');
+  const repoInput = form.querySelector('input[name="repoUrl"]');
+  const portInput = form.querySelector('input[name="port"]');
+  const hint = form.querySelector('.port-hint');
+  const btn = form.querySelector('.suggest-port-btn');
+  const stack = stackSel ? stackSel.value : 'auto';
+  const repoUrl = repoInput ? repoInput.value.trim() : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+  if (hint) hint.textContent = 'Detecting...';
+  try {
+    const params = new URLSearchParams({ stack });
+    if (repoUrl) params.set('repoUrl', repoUrl);
+    const res = await api(`/api/deploy/suggest-port?${params.toString()}`);
+    if (portInput) portInput.value = res.hostPort;
+    const autoMsg = res.autoAssigned ? ' (auto)' : '';
+    if (hint) hint.textContent = `internal: ${res.internalPort} — ${res.source}${autoMsg}`;
+    toast(`Suggested: ${res.hostPort}`);
+  } catch (err) {
+    if (hint) hint.textContent = '';
+    toast(err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magnifying-glass"></i>'; }
+  }
+}
 </script>
 </body>
 </html>
