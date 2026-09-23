@@ -102,11 +102,16 @@ async function requireAuth(opts = {}) {
 }
 
 // ---- Sidebar builder (partagé) ----
+//
+// NOTE : le lien "Deploy" est dynamique selon le rôle :
+//   - admin  → /deploy.html      (déploiement global)
+//   - viewer → /deploy-user.html (déploiement sur ses propres serveurs)
 function buildSidebarNav(activePage, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
-    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
-    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
     { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
     { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
     { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
@@ -150,7 +155,6 @@ function initMobileSidebar(opts = {}) {
 }
 
 // ---- Open a file in Monaco editor ----
-// Usage : openInEditor(appId, path, line, col, errorMsg)
 function openInEditor(appId, path, line = 0, col = 0, errorMsg = '') {
   const params = new URLSearchParams({ id: appId, path });
   if (line > 0) params.set('line', line);
