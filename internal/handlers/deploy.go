@@ -137,7 +137,6 @@ func isLiftable(dir, marker string) bool {
 	case "Dockerfile", "go.mod":
 		return true
 	case "index.html", "index.htm":
-		// Un site statique est toujours « liftable » : rien à builder.
 		return true
 	}
 	return false
@@ -455,8 +454,6 @@ func detectStack(dir string) string {
 	case has("requirements.txt") || has("app.py") || has("manage.py"):
 		return "python"
 	case has("index.html") || has("index.htm"):
-		// Site statique : aucun package.json, aucun composer.json,
-		// mais un index.html à la racine.
 		return "static"
 	default:
 		return "static"
@@ -639,14 +636,15 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 
 type deployGitRequest struct {
-	Name          string `json:"name"`
-	RepoURL       string `json:"repoUrl"`
-	Stack         string `json:"stack"`
-	Port          string `json:"port"`
-	NodeVersion   string `json:"nodeVersion"`
-	PythonVersion string `json:"pythonVersion"`
-	PHPVersion    string `json:"phpVersion"`
-	AppSubdir     string `json:"appSubdir"`
+	Name            string `json:"name"`
+	RepoURL         string `json:"repoUrl"`
+	Stack           string `json:"stack"`
+	Port            string `json:"port"`
+	NodeVersion     string `json:"nodeVersion"`
+	PythonVersion   string `json:"pythonVersion"`
+	PHPVersion      string `json:"phpVersion"`
+	AppSubdir       string `json:"appSubdir"`
+	UseGithubToken  bool   `json:"useGithubToken"` // si true, injecte le PAT GitHub de l'utilisateur
 }
 
 func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
@@ -686,11 +684,46 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out, err := runCommand(2*time.Minute, "git", "clone", "--depth", "1", req.RepoURL, targetDir)
+
+	// Si UseGithubToken est demandé, on récupère le PAT de l'utilisateur.
+	// Sinon on clone en public (URL telle quelle).
+	cloneURL := req.RepoURL
+	cleanURL := req.RepoURL
+	var ghToken string
+	if req.UseGithubToken {
+		g, ok := h.Store.GetGithubToken(user.ID)
+		if !ok {
+			middleware.JSONError(w, http.StatusForbidden, "GitHub account not connected")
+			return
+		}
+		ghToken = g.Token
+		cleanURL = strings.TrimPrefix(cleanURL, "https://")
+		cleanURL = strings.TrimPrefix(cleanURL, "http://")
+		if !strings.HasPrefix(cleanURL, "github.com/") {
+			middleware.JSONError(w, http.StatusBadRequest, "useGithubToken requires a github.com URL")
+			return
+		}
+		cloneURL = "https://x-access-token:" + ghToken + "@" + cleanURL
+	}
+
+	out, err := runCommand(2*time.Minute, "git", "-c", "credential.helper=", "clone", "--depth", "1", cloneURL, targetDir)
 	if err != nil {
-		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+out)
+		_ = os.RemoveAll(targetDir)
+		safeOut := out
+		if ghToken != "" {
+			safeOut = strings.ReplaceAll(safeOut, ghToken, "***")
+			safeOut = strings.ReplaceAll(safeOut, "x-access-token", "***")
+		}
+		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+truncateError(safeOut))
 		return
 	}
+
+	// Nettoyer le remote pour ne pas laisser le token dans .git/config
+	if req.UseGithubToken {
+		_, _ = runCommand(10*time.Second, "git", "-C", targetDir, "remote", "set-url", "origin",
+			"https://"+cleanURL)
+	}
+
 	if autoPort {
 		p, err := findFreePort(8080, 8200)
 		if err != nil {
@@ -724,7 +757,10 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		PHPVersion:    normalizePHPVersion(req.PHPVersion),
 		HostPort:      req.Port,
 	}
-	h.buildAndRun(w, req.Name, targetDir, effectiveDir, subdir, opts, "git", req.RepoURL, user.ID)
+	if req.UseGithubToken {
+		_ = h.Store.TouchGithubToken(user.ID)
+	}
+	h.buildAndRun(w, req.Name, targetDir, effectiveDir, subdir, opts, "git", cleanURL, user.ID)
 }
 
 // =====================================================================
@@ -1094,6 +1130,8 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dep.SourceType == "git" {
+		// Si le remote a des credentials cachés, git pull les utilisera.
+		// Sinon c'est un clone public, ça marche aussi.
 		if out, err := runCommand(2*time.Minute, "git", "-C", dep.Path, "pull"); err != nil {
 			middleware.JSONError(w, http.StatusInternalServerError, "git pull failed:\n"+out)
 			return
