@@ -81,11 +81,11 @@ tailwind.config = {
       <a href="/servers.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition">
         <i class="fas fa-server w-4"></i><span>My apps</span>
       </a>
+      <a href="/deploy-user.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-deploy">
+        <i class="fas fa-rocket w-4"></i><span>Deploy</span>
+      </a>
       <a href="/servers-admin.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-servers-admin">
         <i class="fas fa-layer-group w-4"></i><span>Servers</span>
-      </a>
-      <a href="/deploy.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-deploy">
-        <i class="fas fa-rocket w-4"></i><span>Deploy</span>
       </a>
       <a href="/files.html" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-white transition" id="nav-files">
         <i class="fas fa-folder w-4"></i><span>Files</span>
@@ -180,7 +180,7 @@ tailwind.config = {
       </div>
     </div>
 
-    <!-- Mes serveurs -->
+    <!-- My servers -->
     <div class="bg-panel border border-border rounded-xl overflow-hidden mb-6">
       <div class="px-5 py-4 border-b border-border flex items-center justify-between">
         <h2 class="font-semibold text-white flex items-center gap-2">
@@ -251,8 +251,14 @@ overlay?.addEventListener('click', closeSidebar);
   document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
   const isAdmin = me.role === 'admin';
 
-  // Cacher les liens admin pour les non-admins
-  ['nav-servers-admin','nav-deploy','nav-files','nav-services','nav-databases','nav-users','nav-activity','nav-system'].forEach(id => {
+  // Le lien "Deploy" pointe vers la bonne page selon le rôle
+  const deployLink = document.getElementById('nav-deploy');
+  if (deployLink) {
+    deployLink.href = isAdmin ? '/deploy.html' : '/deploy-user.html';
+  }
+
+  // Masquer les liens purement admin pour les non-admins
+  ['nav-servers-admin','nav-files','nav-services','nav-databases','nav-users','nav-activity','nav-system'].forEach(id => {
     const el = document.getElementById(id);
     if (el && !isAdmin) el.classList.add('hidden');
   });
@@ -355,7 +361,9 @@ async function loadRecentApps() {
   try {
     const deps = await api('/api/deployments');
     if (deps.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-gray-500 py-6">No app yet. <a href="/deploy.html" class="text-accent hover:underline">Deploy one</a>.</td></tr>';
+      const isAdmin = window.currentUser.role === 'admin';
+      const deployHref = isAdmin ? '/deploy.html' : '/deploy-user.html';
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-500 py-6">No app yet. <a href="${deployHref}" class="text-accent hover:underline">Deploy one</a>.</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
