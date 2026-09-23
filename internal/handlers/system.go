@@ -29,20 +29,16 @@ func generateWebhookSecret() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Info renvoie la version locale, l'URL du repo et les infos webhook
-// (URL de callback + secret), pour pré-remplir le tab System.
+// Info renvoie la version locale, l'URL du repo et les infos webhook.
 func (h *SystemHandlers) Info(w http.ResponseWriter, r *http.Request) {
 	commit, _ := runCommand(5*time.Second, "git", "-C", h.SrcDir, "rev-parse", "--short", "HEAD")
 
-	// Secret : s'il n'existe pas encore, on en génère un à la volée.
 	secret, err := h.Store.EnsureWebhookSecret(generateWebhookSecret)
 	if err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// URL de callback : on reconstruit depuis la requête pour fonctionner
-	// aussi bien derrière Nginx, derrière un domaine, ou via IP:port.
 	scheme := "http"
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
@@ -125,15 +121,41 @@ func (h *SystemHandlers) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Stats feeds the dashboard cards.
+//
+// Isolation stricte : les compteurs "services" sont calculés à partir des
+// déploiements visibles par l'utilisateur courant (owner OU subuser). Un
+// admin ne voit donc QUE ses propres services + ceux où il est invité.
+// Le disque et la mémoire restent ceux du VPS entier (ressource physique
+// partagée — ce serait mensonger de la découper par user).
 func (h *SystemHandlers) Stats(w http.ResponseWriter, r *http.Request) {
-	servicesTotal, servicesRunning := dockerCounts()
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		middleware.JSONError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	visibleDeps := h.Store.ListDeploymentsForUser(user.ID, user.Role)
+
+	servicesRunning, servicesTotal := 0, 0
+	for _, d := range visibleDeps {
+		if d.Status == "draft" {
+			continue
+		}
+		servicesTotal++
+		statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
+			"--format", "{{.State.Status}}", d.Container)
+		if strings.TrimSpace(statusOut) == "running" {
+			servicesRunning++
+		}
+	}
+
 	diskUsed, diskTotal := diskUsage("/")
 	memUsed, memTotal := memoryUsage()
 
 	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"servicesRunning": servicesRunning,
 		"servicesTotal":   servicesTotal,
-		"deployments":     len(h.Store.ListDeployments()),
+		"deployments":     len(visibleDeps),
 		"diskUsedBytes":   diskUsed,
 		"diskTotalBytes":  diskTotal,
 		"memUsedBytes":    memUsed,
@@ -141,20 +163,9 @@ func (h *SystemHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func dockerCounts() (total, running int) {
-	out, err := runCommand(10*time.Second, "docker", "ps", "-a", "--format", "{{.Status}}")
-	if err != nil {
-		return 0, 0
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		total++
-		if strings.HasPrefix(strings.ToLower(line), "up") {
-			running++
-		}
-	}
-	return total, running
+	return b
 }
