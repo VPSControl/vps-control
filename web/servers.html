@@ -77,6 +77,7 @@ tailwind.config = {
               <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Stack</th>
               <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Version</th>
               <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Port</th>
+              <th id="th-owner" class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell" style="display:none">Owner</th>
               <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Role</th>
               <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Status</th>
               <th class="px-4 py-3"></th>
@@ -151,14 +152,23 @@ function statusBadge(d, svc) {
 
 async function loadApps() {
   const tbody = document.getElementById('apps-table');
+  const isAdmin = window.currentUser && window.currentUser.role === 'admin';
+
+  const thOwner = document.getElementById('th-owner');
+  if (thOwner) thOwner.style.display = isAdmin ? '' : 'none';
+
   try {
-    const [deps, services] = await Promise.all([
+    const [deps, services, users] = await Promise.all([
       api('/api/deployments'),
       api('/api/services').catch(() => []),
+      isAdmin ? api('/api/users').catch(() => []) : Promise.resolve([]),
     ]);
     const serviceMap = Object.fromEntries((services || []).map(s => [s.Names, s]));
+    const userMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
+
     if (deps.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-500 py-6">No app yet.</td></tr>';
+      const colCount = isAdmin ? 8 : 7;
+      tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-gray-500 py-6">No app yet.</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
@@ -167,13 +177,22 @@ async function loadApps() {
       const isDraft = d.status === 'draft';
       const role = d.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
       const sl = stackLabel(d.stack, d);
+      const ownerName = userMap[d.ownerId] || '—';
+
       const tr = document.createElement('tr');
       tr.className = 'border-b border-border hover:bg-panel2 transition';
-      tr.innerHTML = `
+
+      let html = `
         <td class="px-4 py-3 text-sm text-white">${escapeHtml(d.name)}</td>
         <td class="px-4 py-3 text-sm text-gray-400">${escapeHtml(isDraft ? '—' : sl.base)}</td>
         <td class="px-4 py-3 text-sm text-gray-400 hidden md:table-cell">${escapeHtml(isDraft ? '—' : sl.ver)}</td>
-        <td class="px-4 py-3 text-sm text-gray-400 hidden sm:table-cell">${isDraft ? '—' : `<a href="http://${location.hostname}:${d.port}" target="_blank" class="text-accent hover:underline">${d.port}</a>`}</td>
+        <td class="px-4 py-3 text-sm text-gray-400 hidden sm:table-cell">${isDraft ? '—' : `<a href="http://${location.hostname}:${d.port}" target="_blank" class="text-accent hover:underline">${d.port}</a>`}</td>`;
+
+      if (isAdmin) {
+        html += `<td class="px-4 py-3 text-sm text-gray-400 hidden lg:table-cell">${escapeHtml(ownerName)}</td>`;
+      }
+
+      html += `
         <td class="px-4 py-3 text-sm text-gray-400 hidden lg:table-cell">${role}</td>
         <td class="px-4 py-3">${statusBadge(d, svc)}</td>
         <td class="px-4 py-3 text-right whitespace-nowrap">
@@ -184,10 +203,13 @@ async function loadApps() {
             <i class="fas fa-gear"></i>
           </a>
         </td>`;
+
+      tr.innerHTML = html;
       tbody.appendChild(tr);
     });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
+    const colCount = isAdmin ? 8 : 7;
+    tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 </script>
