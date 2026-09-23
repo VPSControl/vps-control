@@ -62,7 +62,7 @@ tailwind.config = {
 
   <main class="flex-1 min-w-0 p-4 lg:p-8">
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-      <h1 class="text-xl lg:text-2xl font-bold text-white">Servers</h1>
+      <h1 class="text-xl lg:text-2xl font-bold text-white">My apps</h1>
       <button id="btn-refresh" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
         <i class="fas fa-rotate mr-2"></i>Refresh
       </button>
@@ -111,8 +111,9 @@ overlay?.addEventListener('click', () => {
 function buildNav(active, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
-    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
-    { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
     { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
     { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
     { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
