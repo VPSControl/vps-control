@@ -97,7 +97,7 @@ type Deployment struct {
 	SourceType    string       `json:"sourceType"`
 	SourceRef     string       `json:"sourceRef"`
 	Path          string       `json:"path"`
-	AppSubdir     string       `json:"appSubdir,omitempty"` // sous-dossier contenant le projet (vide = racine)
+	AppSubdir     string       `json:"appSubdir,omitempty"`
 	Port          string       `json:"port"`
 	Container     string       `json:"container"`
 	NodeVersion   string       `json:"nodeVersion,omitempty"`
@@ -396,16 +396,18 @@ func (s *Store) ListDeployments() []Deployment {
 	return out
 }
 
+// ListDeploymentsForUser : retourne les déploiements visibles par un
+// utilisateur donné : ceux dont il est propriétaire, plus ceux où il
+// est subuser (invitation acceptée).
+//
+// IMPORTANT — isolation stricte : contrairement aux versions précédentes,
+// le rôle "admin" n'accorde PLUS d'accès automatique aux déploiements
+// des autres. Un admin doit être propriétaire ou subuser pour y accéder.
 func (s *Store) ListDeploymentsForUser(userID, role string) []Deployment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if role == "admin" {
-		out := make([]Deployment, len(s.d.Deployments))
-		copy(out, s.d.Deployments)
-		return out
-	}
-
+	// Liste des IDs de déploiements où cet utilisateur est subuser.
 	access := map[string]bool{}
 	for _, sub := range s.d.Subusers {
 		if sub.UserID == userID {
@@ -413,9 +415,24 @@ func (s *Store) ListDeploymentsForUser(userID, role string) []Deployment {
 		}
 	}
 
-	out := make([]Deployment, 0)
+	out := []Deployment{}
 	for _, d := range s.d.Deployments {
 		if d.OwnerID == userID || access[d.ID] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// ListDeploymentsOwnedBy : retourne uniquement les déploiements dont
+// userID est propriétaire (ignore les subusers). Utile pour les stats
+// "mes services" côté dashboard.
+func (s *Store) ListDeploymentsOwnedBy(userID string) []Deployment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []Deployment{}
+	for _, d := range s.d.Deployments {
+		if d.OwnerID == userID {
 			out = append(out, d)
 		}
 	}
