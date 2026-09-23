@@ -98,6 +98,60 @@ tailwind.config = {
   </main>
 </div>
 
+<!-- Delete confirmation modal (L4) -->
+<div id="delete-user-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-lg">
+    <div class="flex items-start gap-3 mb-4">
+      <div class="w-10 h-10 rounded-xl bg-danger/15 border border-danger/30 flex items-center justify-center text-danger flex-shrink-0">
+        <i class="fas fa-triangle-exclamation"></i>
+      </div>
+      <div>
+        <h3 class="text-lg font-bold text-white">Delete user</h3>
+        <p class="text-sm text-gray-400 mt-1">
+          You are about to delete <strong id="del-username" class="text-white">—</strong> and everything they own.
+        </p>
+      </div>
+    </div>
+
+    <div id="del-preview-box" class="bg-bg border border-border rounded-lg p-4 mb-4 text-sm">
+      <div class="text-xs uppercase tracking-wider text-gray-500 mb-3">Resources that will be removed</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="flex justify-between"><span class="text-gray-400">Servers</span><span class="font-mono text-white" id="del-servers">—</span></div>
+        <div class="flex justify-between"><span class="text-gray-400">Apps</span><span class="font-mono text-white" id="del-apps">—</span></div>
+        <div class="flex justify-between"><span class="text-gray-400">Backups</span><span class="font-mono text-white" id="del-backups">—</span></div>
+        <div class="flex justify-between"><span class="text-gray-400">Domains</span><span class="font-mono text-white" id="del-domains">—</span></div>
+        <div class="col-span-2 flex justify-between border-t border-border pt-3 mt-1">
+          <span class="text-gray-400">Disk used</span>
+          <span class="font-mono text-white" id="del-disk">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-danger/10 border border-danger/30 rounded-lg p-3 mb-4 flex items-start gap-2">
+      <i class="fas fa-info-circle text-danger mt-0.5"></i>
+      <p class="text-xs text-danger leading-relaxed">
+        This will stop and remove every Docker container, delete every app folder on disk,
+        remove backup archives, and delete Nginx vhosts and SSL certificates.
+        <strong>This cannot be undone.</strong>
+      </p>
+    </div>
+
+    <label class="flex items-center gap-2 text-sm text-gray-300 mb-4 cursor-pointer">
+      <input type="checkbox" id="del-confirm-check" class="accent-accent w-auto">
+      I understand this is irreversible
+    </label>
+
+    <p id="del-error" class="text-xs text-danger mb-3 min-h-[16px]"></p>
+
+    <div class="flex justify-end gap-2">
+      <button id="btn-cancel-delete-user" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-delete-user" class="px-4 py-2 rounded-lg bg-danger hover:bg-red-600 text-white font-semibold text-sm transition" disabled>
+        <i class="fas fa-trash mr-1"></i>Delete everything
+      </button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
 
 <script src="/app.js"></script>
@@ -111,7 +165,8 @@ overlay?.addEventListener('click', () => { sidebar.classList.add('-translate-x-f
 function buildNav(active, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
-    { href: '/servers.html', icon: 'fa-server', label: 'Servers', id: 'servers' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
     { href: '/deploy.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy', admin: true },
     { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
     { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
@@ -126,6 +181,9 @@ function buildNav(active, isAdmin) {
   ).join('');
 }
 
+let usersCache = [];
+let pendingDeleteUser = null;
+
 (async function() {
   const me = await requireAuth({ adminOnly: true });
   if (!me) return;
@@ -137,15 +195,21 @@ function buildNav(active, isAdmin) {
     location.href = '/index.html';
   });
   loadUsers();
+
+  document.getElementById('btn-cancel-delete-user').addEventListener('click', closeDeleteModal);
+  document.getElementById('del-confirm-check').addEventListener('change', (e) => {
+    document.getElementById('btn-confirm-delete-user').disabled = !e.target.checked;
+  });
+  document.getElementById('btn-confirm-delete-user').addEventListener('click', confirmDeleteUser);
 })();
 
 async function loadUsers() {
   const tbody = document.getElementById('users-table');
   tbody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-6">Loading...</td></tr>';
   try {
-    const users = await api('/api/users');
+    usersCache = await api('/api/users');
     tbody.innerHTML = '';
-    users.forEach(u => {
+    usersCache.forEach(u => {
       const tr = document.createElement('tr');
       tr.className = 'border-b border-border hover:bg-panel2 transition';
       const roleBadge = u.role === 'admin'
@@ -162,7 +226,7 @@ async function loadUsers() {
         btn.className = 'text-xs px-2 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition';
         btn.innerHTML = '<i class="fas fa-trash"></i>';
         btn.title = 'Delete';
-        btn.addEventListener('click', () => deleteUser(u.id));
+        btn.addEventListener('click', () => openDeleteModal(u));
         actions.appendChild(btn);
       }
       tbody.appendChild(tr);
@@ -183,13 +247,64 @@ document.getElementById('form-add-user').addEventListener('submit', async (e) =>
   } catch (err) { toast(err.message, true); }
 });
 
-async function deleteUser(id) {
-  if (!confirm('Delete this account?')) return;
+// =====================================================================
+// Delete confirmation flow (L4)
+// =====================================================================
+
+async function openDeleteModal(u) {
+  pendingDeleteUser = u;
+  document.getElementById('del-username').textContent = u.username;
+  document.getElementById('del-error').textContent = '';
+  document.getElementById('del-confirm-check').checked = false;
+  document.getElementById('btn-confirm-delete-user').disabled = true;
+
+  // Vider le preview en attendant.
+  ['del-servers','del-apps','del-backups','del-domains','del-disk'].forEach(id => {
+    document.getElementById(id).textContent = '…';
+  });
+
+  document.getElementById('delete-user-modal').classList.remove('hidden');
+
+  // Charger le preview.
   try {
-    await api(`/api/users/${id}`, { method: 'DELETE' });
-    toast('Account deleted');
+    const preview = await api(`/api/admin/users/${u.id}/preview`);
+    document.getElementById('del-servers').textContent = preview.serversCount ?? 0;
+    document.getElementById('del-apps').textContent = preview.appsCount ?? 0;
+    document.getElementById('del-backups').textContent = preview.backupsCount ?? 0;
+    document.getElementById('del-domains').textContent = preview.domainsCount ?? 0;
+    document.getElementById('del-disk').textContent = formatBytes((preview.diskUsedMB || 0) * 1024 * 1024);
+  } catch (err) {
+    document.getElementById('del-error').textContent = 'Preview failed: ' + err.message;
+  }
+}
+
+function closeDeleteModal() {
+  document.getElementById('delete-user-modal').classList.add('hidden');
+  pendingDeleteUser = null;
+}
+
+async function confirmDeleteUser() {
+  if (!pendingDeleteUser) return;
+  const errEl = document.getElementById('del-error');
+  errEl.textContent = '';
+
+  const btn = document.getElementById('btn-confirm-delete-user');
+  btn.disabled = true;
+  const oldHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Deleting...';
+
+  try {
+    const res = await api(`/api/admin/users/${pendingDeleteUser.id}?confirm=true`, { method: 'DELETE' });
+    const p = res.purged || {};
+    toast(`Deleted · ${p.deploymentsPurged || 0} app(s), ${p.serversPurged || 0} server(s)`);
+    closeDeleteModal();
     loadUsers();
-  } catch (err) { toast(err.message, true); }
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldHTML;
+  }
 }
 </script>
 </body>
