@@ -21,12 +21,12 @@ tailwind.config = {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
   html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
-  input {
+  input, textarea {
     background: #0a0f1a; border: 1px solid #1f2937; color: #e5e7eb;
     padding: 10px 12px; border-radius: 8px; font-size: 13.5px; width: 100%; outline: none;
     transition: border-color .15s, box-shadow .15s;
   }
-  input:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  input:focus, textarea:focus { border-color: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 12.5px;
@@ -36,6 +36,23 @@ tailwind.config = {
     border-radius: 6px;
     padding: 2px 8px;
   }
+  .tab-btn {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #9ca3af;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: all .15s;
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    color: #22c55e;
+    background: rgba(34,197,94,.08);
+    border-color: rgba(34,197,94,.3);
+  }
+  .tab-btn:hover:not(.active) { color: #e5e7eb; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -69,38 +86,110 @@ tailwind.config = {
   <main class="flex-1 min-w-0 p-4 lg:p-8">
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
       <div>
-        <h1 class="text-xl lg:text-2xl font-bold text-white">API Tokens</h1>
-        <p class="text-sm text-gray-500 mt-1">Use with the header <code>Authorization: Bearer vcp_...</code></p>
+        <h1 class="text-xl lg:text-2xl font-bold text-white">Account Integrations</h1>
+        <p class="text-sm text-gray-500 mt-1">API tokens for the panel, and your GitHub account for private repos.</p>
       </div>
-      <button id="btn-create-token" class="px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
-        <i class="fas fa-plus mr-2"></i>Create token
-      </button>
     </div>
 
-    <div class="bg-panel border border-border rounded-xl overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-border">
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Prefix</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Created</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Last used</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden xl:table-cell">Expires</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Status</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody id="tokens-table">
-            <tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-6 border-b border-border pb-3 flex-wrap">
+      <button class="tab-btn active" data-tab="apitokens">API Tokens</button>
+      <button class="tab-btn" data-tab="github">GitHub</button>
     </div>
+
+    <!-- ============ API TOKENS ============ -->
+    <section id="tab-apitokens" class="tab-content">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <p class="text-sm text-gray-500">Use with the header <code>Authorization: Bearer vcp_...</code></p>
+        <button id="btn-create-token" class="px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-plus mr-2"></i>Create token
+        </button>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Prefix</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Created</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Last used</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden xl:table-cell">Expires</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Status</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="tokens-table">
+              <tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GITHUB ============ -->
+    <section id="tab-github" class="tab-content hidden">
+      <div id="gh-disconnected" class="hidden">
+        <div class="bg-panel border border-border rounded-xl p-6 max-w-2xl">
+          <div class="flex items-start gap-3 mb-5">
+            <div class="w-12 h-12 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center text-accent text-xl flex-shrink-0">
+              <i class="fab fa-github"></i>
+            </div>
+            <div>
+              <h2 class="text-lg font-bold text-white">Connect your GitHub account</h2>
+              <p class="text-sm text-gray-400 mt-1 leading-relaxed">
+                Link a GitHub Personal Access Token to import <strong class="text-white">private repositories</strong>
+                and repositories from your organisations. You'll be able to deploy them directly from the panel.
+              </p>
+            </div>
+          </div>
+
+          <div class="bg-bg border border-border rounded-lg p-4 mb-5 text-xs text-gray-400 leading-relaxed">
+            <p class="font-semibold text-white mb-2">How to create a token:</p>
+            <ol class="list-decimal ml-5 space-y-1">
+              <li>Go to <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener" class="text-accent hover:underline">github.com/settings/tokens/new</a></li>
+              <li>Give it a name (e.g. <code>VPS Control</code>)</li>
+              <li>Select the <strong class="text-white">repo</strong> scope (full control of private repositories)</li>
+              <li>If you need organisation repos, add <strong class="text-white">read:org</strong></li>
+              <li>Click <em>Generate token</em> and copy it</li>
+            </ol>
+          </div>
+
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Personal Access Token</label>
+          <input id="gh-token-input" type="password" placeholder="ghp_... or github_pat_...">
+          <p id="gh-error" class="text-xs text-danger mt-2 min-h-[16px]"></p>
+
+          <button id="gh-connect-btn" class="mt-4 px-5 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+            <i class="fab fa-github mr-2"></i>Connect GitHub
+          </button>
+        </div>
+      </div>
+
+      <div id="gh-connected" class="hidden">
+        <div class="bg-panel border border-border rounded-xl p-5 mb-5 max-w-2xl">
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center text-accent text-xl flex-shrink-0">
+              <i class="fas fa-check"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-gray-500">Connected as</p>
+              <p class="text-base font-bold text-white truncate" id="gh-username">—</p>
+              <p class="text-xs text-gray-500 mt-1">
+                Scopes: <span id="gh-scopes">—</span> · Since <span id="gh-since">—</span>
+              </p>
+            </div>
+            <button id="gh-disconnect-btn" class="px-3 py-2 rounded-lg bg-panel2 border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition whitespace-nowrap">
+              <i class="fas fa-unlink mr-1"></i>Disconnect
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
-<!-- Modal create -->
+<!-- Token create modal -->
 <div id="token-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
   <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
     <h3 class="text-lg font-bold text-white mb-4">Create API token</h3>
@@ -115,7 +204,7 @@ tailwind.config = {
   </div>
 </div>
 
-<!-- Modal result -->
+<!-- Token result modal -->
 <div id="token-result-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
   <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
     <h3 class="text-lg font-bold text-white mb-2">Token created</h3>
@@ -173,9 +262,23 @@ function buildNav(active, isAdmin) {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.href = '/index.html';
   });
+
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+      if (btn.dataset.tab === 'github') loadGithubStatus();
+    });
+  });
+
   loadTokens();
+  loadGithubStatus();
 })();
 
+// ============ API TOKENS ============
 async function loadTokens() {
   const tbody = document.getElementById('tokens-table');
   tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>';
@@ -265,6 +368,59 @@ document.getElementById('btn-token-copy').addEventListener('click', async () => 
 
 document.getElementById('btn-token-result-close').addEventListener('click', () => {
   document.getElementById('token-result-modal').classList.add('hidden');
+});
+
+// ============ GITHUB ============
+async function loadGithubStatus() {
+  try {
+    const s = await api('/api/github/status');
+    if (s.connected) {
+      document.getElementById('gh-disconnected').classList.add('hidden');
+      document.getElementById('gh-connected').classList.remove('hidden');
+      document.getElementById('gh-username').textContent = s.username || '—';
+      document.getElementById('gh-scopes').textContent = (s.scopes || []).join(', ') || 'none';
+      document.getElementById('gh-since').textContent = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—';
+    } else {
+      document.getElementById('gh-connected').classList.add('hidden');
+      document.getElementById('gh-disconnected').classList.remove('hidden');
+      document.getElementById('gh-token-input').value = '';
+      document.getElementById('gh-error').textContent = '';
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+document.getElementById('gh-connect-btn')?.addEventListener('click', async () => {
+  const token = document.getElementById('gh-token-input').value.trim();
+  const errEl = document.getElementById('gh-error');
+  errEl.textContent = '';
+  if (!token) { errEl.textContent = 'Token is required'; return; }
+  const btn = document.getElementById('gh-connect-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Connecting...';
+  try {
+    const res = await api('/api/github/token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+    toast(`Connected as ${res.username}`);
+    loadGithubStatus();
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fab fa-github mr-2"></i>Connect GitHub';
+  }
+});
+
+document.getElementById('gh-disconnect-btn')?.addEventListener('click', async () => {
+  if (!confirm('Disconnect your GitHub account? Existing deployments will keep running, but you won\'t be able to import new private repos.')) return;
+  try {
+    await api('/api/github/token', { method: 'DELETE' });
+    toast('GitHub disconnected');
+    loadGithubStatus();
+  } catch (err) { toast(err.message, true); }
 });
 </script>
 </body>
