@@ -77,8 +77,7 @@ type githubUser struct {
 }
 
 // fetchGithubUser : récupère le username + valide le token.
-// Retourne aussi la liste des scopes lus depuis le header HTTP
-// (non accessible via githubGet, on refait un appel dédié).
+// Retourne aussi la liste des scopes lus depuis le header HTTP.
 func fetchGithubUser(token string) (githubUser, []string, error) {
 	req, err := http.NewRequest("GET", githubAPIBase+"/user", nil)
 	if err != nil {
@@ -109,7 +108,6 @@ func fetchGithubUser(token string) (githubUser, []string, error) {
 		return githubUser{}, nil, err
 	}
 
-	// Header X-OAuth-Scopes contient "repo, read:org" etc.
 	scopes := []string{}
 	if s := resp.Header.Get("X-OAuth-Scopes"); s != "" {
 		for _, sc := range strings.Split(s, ",") {
@@ -143,7 +141,6 @@ type githubRepo struct {
 // token (le scope `repo` donne accès aux privés).
 func fetchGithubRepos(token string) ([]githubRepo, error) {
 	repos := []githubRepo{}
-	// Pagination : max 3 pages de 100 (300 repos) — largement assez.
 	for page := 1; page <= 3; page++ {
 		path := fmt.Sprintf("/user/repos?per_page=100&page=%d&sort=updated&affiliation=owner,collaborator,organization_member", page)
 		body, err := githubGet(token, path)
@@ -170,7 +167,6 @@ func fetchGithubRepos(token string) ([]githubRepo, error) {
 // =====================================================================
 
 // Status : GET /api/github/status
-// Renvoie l'état de connexion (sans jamais révéler le token).
 func (h *GithubHandlers) Status(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -194,7 +190,6 @@ func (h *GithubHandlers) Status(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetToken : POST /api/github/token
-// Body JSON : { "token": "ghp_..." }
 func (h *GithubHandlers) SetToken(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -214,15 +209,11 @@ func (h *GithubHandlers) SetToken(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "token is required")
 		return
 	}
-	// Un PAT GitHub classique commence par ghp_ / gho_ / ghu_ / ghs_ / ghr_
-	// ou github_pat_ pour les fine-grained. On vérifie juste la longueur
-	// minimale pour éviter les fautes de frappe évidentes.
 	if len(req.Token) < 20 {
 		middleware.JSONError(w, http.StatusBadRequest, "token looks too short")
 		return
 	}
 
-	// Valider le token et récupérer le username + scopes.
 	ghUser, scopes, err := fetchGithubUser(req.Token)
 	if err != nil {
 		middleware.JSONError(w, http.StatusBadRequest, "GitHub rejected the token: "+err.Error())
@@ -279,7 +270,6 @@ func (h *GithubHandlers) DeleteToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListRepos : GET /api/github/repos
-// Renvoie la liste des repos accessibles avec le token de l'utilisateur.
 func (h *GithubHandlers) ListRepos(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -305,11 +295,13 @@ func (h *GithubHandlers) ListRepos(w http.ResponseWriter, r *http.Request) {
 // Import : clone un repo privé et déclenche le déploiement
 // =====================================================================
 
-// ImportRequest : POST /api/github/import
+// githubImportRequest : POST /api/github/import
+// L3 : serverId est obligatoire.
 type githubImportRequest struct {
 	Name          string `json:"name"`
-	RepoFullName  string `json:"repoFullName"`  // ex : "user/monorepo"
-	CloneURL      string `json:"cloneUrl"`      // optionnel : si absent, reconstruit depuis repoFullName
+	ServerID      string `json:"serverId"`      // ← L3 : obligatoire
+	RepoFullName  string `json:"repoFullName"`
+	CloneURL      string `json:"cloneUrl"`
 	Stack         string `json:"stack"`
 	Port          string `json:"port"`
 	NodeVersion   string `json:"nodeVersion"`
@@ -319,7 +311,6 @@ type githubImportRequest struct {
 }
 
 // injectTokenInCloneURL : insère le token dans l'URL HTTPS du repo.
-// https://github.com/user/repo.git  →  https://x-access-token:TOKEN@github.com/user/repo.git
 func injectTokenInCloneURL(cloneURL, token string) (string, error) {
 	u, err := url.Parse(cloneURL)
 	if err != nil {
@@ -334,10 +325,6 @@ func injectTokenInCloneURL(cloneURL, token string) (string, error) {
 
 // Import : clone un repo GitHub (privé ou public) avec le token de
 // l'utilisateur, puis enchaîne sur le déploiement standard.
-//
-// On ne fait PAS de git clone ici : on délègue à DeployHandlers en lui
-// passant l'URL avec token injecté. Comme ça toute la logique de
-// détection de stack / build / run reste centralisée dans deploy.go.
 func (h *GithubHandlers) Import(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -368,6 +355,18 @@ func (h *GithubHandlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ---- L3 : valider le serveur cible + quota ----
+	sh := &ServerHandlers{Store: h.Store}
+	serverID, err := sh.resolveServerID(user, req.ServerID)
+	if err != nil {
+		middleware.JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if ok, msg := sh.checkServerQuota(serverID); !ok {
+		middleware.JSONError(w, http.StatusConflict, msg)
+		return
+	}
+
 	// Reconstruire cloneURL si on a seulement repoFullName.
 	// On ne fait JAMAIS confiance au cloneUrl fourni par le client :
 	// on le valide contre github.com.
@@ -379,8 +378,7 @@ func (h *GithubHandlers) Import(w http.ResponseWriter, r *http.Request) {
 		middleware.JSONError(w, http.StatusBadRequest, "cloneUrl must point to github.com")
 		return
 	}
-	// Nettoyer l'URL : retirer tout user:pass déjà présent (au cas où
-	// le client aurait glissé un token dans l'URL).
+	// Nettoyer l'URL : retirer tout user:pass déjà présent.
 	u.User = nil
 	cleanCloneURL := u.String()
 
@@ -415,22 +413,17 @@ func (h *GithubHandlers) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clone avec le token. On utilise --config pour ne pas laisser
-	// le token traîner dans .git/config après le clone.
+	// Clone avec le token.
 	out, err := runCommand(2*time.Minute, "git", "-c", "credential.helper=", "clone", "--depth", "1", authURL, targetDir)
 	if err != nil {
-		// Nettoyer le dossier partiel.
 		_ = os.RemoveAll(targetDir)
-		// Ne pas renvoyer le token dans l'erreur.
 		safeOut := strings.ReplaceAll(out, g.Token, "***")
 		safeOut = strings.ReplaceAll(safeOut, "x-access-token", "***")
 		middleware.JSONError(w, http.StatusBadRequest, "git clone failed: "+truncateError(safeOut))
 		return
 	}
 
-	// Supprimer les credentials éventuellement stockés (git les met dans
-	// .git/config via l'URL si mal configuré — on s'assure qu'il n'y a
-	// rien qui traîne).
+	// Nettoyer le remote (ne pas laisser le token dans .git/config).
 	_, _ = runCommand(10*time.Second, "git", "-C", targetDir, "remote", "set-url", "origin", cleanCloneURL)
 
 	if autoPort {
@@ -476,20 +469,19 @@ func (h *GithubHandlers) Import(w http.ResponseWriter, r *http.Request) {
 		ActorName: user.Username,
 		Action:    "github.import",
 		Target:    req.Name,
-		Details:   map[string]interface{}{"repo": req.RepoFullName, "private": true},
+		Details:   map[string]interface{}{"repo": req.RepoFullName, "private": true, "serverId": serverID},
 	})
 
 	// Déléguer le build + run au handler standard.
+	// L3 : on passe serverID en 3ème argument.
 	dh := &DeployHandlers{Store: h.Store, DeployRoot: h.DeployRoot}
-	dh.buildAndRun(w, req.Name, targetDir, effectiveDir, subdir, opts, "git", cleanCloneURL, user.ID)
+	dh.buildAndRun(w, req.Name, serverID, targetDir, effectiveDir, subdir, opts, "git", cleanCloneURL, user.ID)
 }
 
 // =====================================================================
-// Validation du nom de repo (utilisé dans le formulaire)
+// Validation du nom de repo
 // =====================================================================
 
-// repoFullNameRe : "owner/repo", alphanumériques, tirets, underscores,
-// points autorisés. Utilisé pour valider côté serveur.
 var repoFullNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,38}/[a-zA-Z0-9][a-zA-Z0-9-_.]{0,99}$`)
 
 // ValidateRepoFullName : exporté pour tests éventuels.
