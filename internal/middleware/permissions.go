@@ -40,6 +40,14 @@ func HasPermission(perms []string, needed string) bool {
 }
 
 // RequireDeploymentAccess : vérifie que l'utilisateur a accès au déploiement.
+//
+// Règles (isolation stricte) :
+//   - Le propriétaire du déploiement → accès total (["*"])
+//   - Un subuser (invitation acceptée) → accès selon ses permissions
+//   - Tout le monde d'autre, Y COMPRIS LES ADMINS → accès refusé
+//
+// Un admin peut tout de même accéder à une app s'il en est propriétaire
+// ou s'il a été invité comme collaborateur.
 func RequireDeploymentAccess(st *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,9 +70,7 @@ func RequireDeploymentAccess(st *store.Store) func(http.Handler) http.Handler {
 			}
 
 			var perms []string
-			if user.Role == "admin" {
-				perms = []string{"*"}
-			} else if dep.OwnerID == user.ID {
+			if dep.OwnerID == user.ID {
 				perms = []string{"*"}
 			} else {
 				sub, ok := st.FindSubuser(user.ID, id)
