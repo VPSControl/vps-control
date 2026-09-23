@@ -155,6 +155,26 @@ overlay?.addEventListener('click', () => {
   overlay.classList.add('hidden');
 });
 
+// ============ NAV ============
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
 // ============ STATE ============
 let filesCurrentPath = '';
 let selectedFiles = new Set();
@@ -165,7 +185,7 @@ let selectedFiles = new Set();
   if (!me) return;
   window.currentUser = me;
   document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
-  renderSidebar('files');
+  buildNav('files', me.role === 'admin');
   document.getElementById('btn-logout').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.href = '/index.html';
@@ -206,17 +226,14 @@ async function loadFiles(path) {
         <td class="px-3 py-2.5 text-xs text-gray-500 hidden md:table-cell">${escapeHtml(entry.modTime)}</td>
         <td class="px-3 py-2.5 text-right whitespace-nowrap"></td>`;
 
-      // Click on file name
       tr.querySelector('.file-open').addEventListener('click', () => {
         if (entry.isDir) {
           loadFiles(entry.path);
         } else {
-          // Redirige vers Monaco editor
           openInEditorPage(entry.path);
         }
       });
 
-      // Actions
       const actions = tr.querySelector('td:last-child');
       if (!entry.isDir) {
         actions.appendChild(iconBtn('pen', 'Edit', () => openInEditorPage(entry.path)));
@@ -246,12 +263,7 @@ async function loadFiles(path) {
 }
 
 // ============ EDITOR REDIRECT ============
-// Ouvre edit.html avec le chemin du fichier.
-// Note : cette page fonctionne sans app (files globaux), donc pas d'id d'app.
-// On utilise id=global pour signaler au backend qu'on est dans le file manager global.
 function openInEditorPage(filePath) {
-  // Le file manager global utilise /api/files/content (pas scopé par app).
-  // edit.html supporte les deux cas : si id=global, il utilise /api/files.
   const params = new URLSearchParams({
     id: 'global',
     path: filePath,
