@@ -16,7 +16,7 @@ type UserHandlers struct {
 }
 
 // =====================================================================
-// List / Create (inchangés depuis L1)
+// List / Create
 // =====================================================================
 
 func (h *UserHandlers) List(w http.ResponseWriter, r *http.Request) {
@@ -75,8 +75,6 @@ func (h *UserHandlers) Create(w http.ResponseWriter, r *http.Request) {
 // Preview (L4) : GET /api/admin/users/{id}/preview
 // =====================================================================
 
-// Preview : renvoie ce qui serait supprimé si on supprime cet utilisateur.
-// N'effectue aucune modification.
 func (h *UserHandlers) Preview(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromPath(r.URL.Path, "/preview")
 	if userID == "" {
@@ -97,16 +95,7 @@ func (h *UserHandlers) Preview(w http.ResponseWriter, r *http.Request) {
 // Delete (L4) : DELETE /api/admin/users/{id}?confirm=true
 // =====================================================================
 
-// Delete : supprime un utilisateur et toutes ses ressources (serveurs,
-// apps, conteneurs, images, dossiers, backups, domaines, tokens GitHub).
-//
-// Sécurité :
-//   - refuse de supprimer son propre compte
-//   - refuse de supprimer le dernier admin
-//   - si l'user a des ressources et que ?confirm=true n'est pas fourni,
-//     renvoie 409 Conflict avec un message demandant confirmation.
 func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
-	// userIDFromPath : /api/users/{id} → {id}
 	userID := userIDFromPath(r.URL.Path, "")
 	if userID == "" {
 		middleware.JSONError(w, http.StatusBadRequest, "missing user id")
@@ -139,7 +128,6 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Aperçu de ce qui va être supprimé.
 	sh := &ServerHandlers{Store: h.Store}
 	preview := sh.buildUserPurgePreview(u)
 
@@ -147,8 +135,6 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 	confirm := r.URL.Query().Get("confirm") == "true"
 
 	if hasResources && !confirm {
-		// On renvoie 409 avec le preview pour que l'UI puisse afficher
-		// une modale "es-tu sûr ?" détaillée.
 		middleware.JSON(w, http.StatusConflict, map[string]interface{}{
 			"error":   "this user owns resources. Re-send the request with ?confirm=true to delete everything.",
 			"preview": preview,
@@ -156,12 +142,8 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Purge cascade (best-effort).
 	purgeResult := sh.purgeUserResources(userID)
 
-	// Suppression de l'utilisateur lui-même (nettoie aussi ses tokens
-	// API et ses subuser entries, mais pas ses serveurs/apps — c'est
-	// purgeUserResources qui s'en est occupé).
 	if err := h.Store.DeleteUser(userID); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "purge done but user delete failed: "+err.Error())
 		return
@@ -175,12 +157,12 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 		Action:    "user.delete",
 		Target:    u.Username,
 		Details: map[string]interface{}{
-			"servers":  purgeResult.ServersPurged,
-			"apps":     purgeResult.DeploymentsPurged,
-			"backups":  purgeResult.BackupsRemoved,
-			"domains":  purgeResult.DomainsRemoved,
-			"folders":  purgeResult.FoldersRemoved,
-			"errors":   len(purgeResult.Errors),
+			"servers": purgeResult.ServersPurged,
+			"apps":    purgeResult.DeploymentsPurged,
+			"backups": purgeResult.BackupsRemoved,
+			"domains": purgeResult.DomainsRemoved,
+			"folders": purgeResult.FoldersRemoved,
+			"errors":  len(purgeResult.Errors),
 		},
 	})
 
@@ -197,10 +179,7 @@ func (h *UserHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 
 // userIDFromPath : extrait l'ID utilisateur depuis /api/users/{id}
 // ou /api/admin/users/{id}/preview.
-//
-// suffix : chaîne à retirer de la fin (ex: "/preview"), "" si rien.
 func userIDFromPath(path, suffix string) string {
-	// On accepte les deux préfixes pour rester flexible.
 	for _, prefix := range []string{"/api/admin/users/", "/api/users/"} {
 		if strings.HasPrefix(path, prefix) {
 			rest := strings.TrimPrefix(path, prefix)
@@ -208,7 +187,6 @@ func userIDFromPath(path, suffix string) string {
 				rest = strings.TrimSuffix(rest, suffix)
 			}
 			rest = strings.Trim(rest, "/")
-			// Ignorer les sous-chemins éventuels.
 			if idx := strings.Index(rest, "/"); idx >= 0 {
 				rest = rest[:idx]
 			}
@@ -218,16 +196,5 @@ func userIDFromPath(path, suffix string) string {
 	return ""
 }
 
-// publicUser : identique à auth.go, mais dupliqué ici pour éviter une
-// dépendance croisée dans le package.
-//
-// NOTE : si tu as déjà publicUser dans auth.go (package handlers),
-// supprime cette copie — sinon conflit de déclaration. Vérifie !
-func publicUser(u store.User) map[string]interface{} {
-	return map[string]interface{}{
-		"id":        u.ID,
-		"username":  u.Username,
-		"role":      u.Role,
-		"createdAt": u.CreatedAt,
-	}
-}
+// Note : publicUser est définie dans auth.go (même package handlers).
+// On ne la redéfinit PAS ici pour éviter le conflit de déclaration.
