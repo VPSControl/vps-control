@@ -789,7 +789,6 @@ async function loadApp() {
     document.getElementById('app-domain').textContent = currentApp.status === 'draft' ? 'Not deployed yet' : `http://${location.hostname}:${currentApp.port}`;
     document.getElementById('app-role').textContent = currentApp.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
 
-    // Afficher le sous-dossier effectif dans la sidebar
     const subdirEl = document.getElementById('app-subdir');
     if (currentApp.appSubdir) {
       subdirEl.textContent = `📁 ${currentApp.appSubdir}/`;
@@ -865,10 +864,12 @@ async function refreshLiveStats() {
 }
 
 // ============ CONSOLE ============
+// Tag utilisé pour les messages du panel dans la console.
+const CONSOLE_TAG = 'vpscontrol-deamon';
+
 async function initConsole() {
   const out = document.getElementById('console-output');
   out.innerHTML = '';
-  appendConsoleLine('[system]', 'Connecting to console...', 'muted');
   await refreshLiveStats();
   if (liveStatsTimer) clearInterval(liveStatsTimer);
   liveStatsTimer = setInterval(refreshLiveStats, 3000);
@@ -892,30 +893,33 @@ async function initConsole() {
       showErrorBanner(res.lastError, res.finishedAt);
     }
 
-    if (res.logs && res.logs.trim()) {
+    // N'affiche les logs QUE si le conteneur tourne.
+    // Sinon la console reste vide (seul le statut est visible).
+    if (isRunning && res.logs && res.logs.trim()) {
       res.logs.split('\n').forEach(line => {
         if (!line.trim()) return;
         const isErr = /error|exception|fatal|failed|crash|traceback/i.test(line);
         appendConsoleLine('', line, isErr ? 'error-line' : '', res.parsedErrors);
       });
-    } else {
-      appendConsoleLine('[system]', '(no logs yet)', 'muted');
     }
   } catch (err) { appendConsoleLine('[error]', err.message, 'muted'); }
-  startConsoleStream();
+  // Ne lance le stream SSE que si le conteneur tourne.
+  if (document.getElementById('console-status-dot').classList.contains('bg-accent')) {
+    startConsoleStream();
+  }
 }
 
 function startConsoleStream() {
   if (consoleEventSource) { consoleEventSource.close(); consoleEventSource = null; }
   try {
     consoleEventSource = new EventSource(`/api/deployments/${appId}/console/stream`);
-    consoleEventSource.onopen = () => appendConsoleLine('[system]', 'Stream connected.', 'muted');
+    consoleEventSource.onopen = () => appendConsoleLine(CONSOLE_TAG, 'Stream connected.', 'muted');
     consoleEventSource.onmessage = (e) => {
       if (!e.data) return;
       const isErr = /error|exception|fatal|failed|crash|traceback/i.test(e.data);
       appendConsoleLine('', e.data, isErr ? 'error-line' : '');
     };
-    consoleEventSource.onerror = () => appendConsoleLine('[system]', 'Stream disconnected — retrying...', 'muted');
+    consoleEventSource.onerror = () => appendConsoleLine(CONSOLE_TAG, 'Stream disconnected — retrying...', 'muted');
   } catch (err) { appendConsoleLine('[error]', 'Stream error: ' + err.message, 'muted'); }
 }
 
@@ -955,7 +959,7 @@ document.querySelectorAll('[data-power]').forEach(btn => {
   btn.addEventListener('click', async () => {
     if (!currentApp) return;
     const action = btn.dataset.power;
-    appendConsoleLine('[system]', `Sending "${action}" to container...`, 'muted');
+    appendConsoleLine(CONSOLE_TAG, `Sending "${action}" to container...`, 'muted');
     try {
       await api(`/api/services/${encodeURIComponent(currentApp.container)}/${action}`, { method: 'POST' });
       toast(`Container ${action} done`);
@@ -1647,7 +1651,6 @@ function updateSettingsVisibility() {
 }
 document.getElementById('set-stack').addEventListener('change', updateSettingsVisibility);
 
-// Bouton "Auto" pour re-détecter le sous-dossier
 document.getElementById('btn-detect-subdir').addEventListener('click', async () => {
   const input = document.getElementById('set-app-subdir');
   const btn = document.getElementById('btn-detect-subdir');
@@ -1655,7 +1658,6 @@ document.getElementById('btn-detect-subdir').addEventListener('click', async () 
   const oldHTML = btn.innerHTML;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   try {
-    // On envoie "auto" au backend ; il renvoie la valeur détectée sans    // nécessairement rebuild (changed=false si identique).
     const res = await api(`/api/deployments/${currentApp.id}/settings`, {
       method: 'PUT',
       body: JSON.stringify({ appSubdir: 'auto' }),
@@ -1663,7 +1665,6 @@ document.getElementById('btn-detect-subdir').addEventListener('click', async () 
     if (res.deployment && typeof res.deployment.appSubdir !== 'undefined') {
       input.value = res.deployment.appSubdir || '';
       currentApp.appSubdir = res.deployment.appSubdir || '';
-      // Mettre à jour l'affichage sidebar
       const subdirEl = document.getElementById('app-subdir');
       if (currentApp.appSubdir) {
         subdirEl.textContent = `📁 ${currentApp.appSubdir}/`;
@@ -1672,7 +1673,6 @@ document.getElementById('btn-detect-subdir').addEventListener('click', async () 
       }
       toast(res.changed ? 'Subdirectory updated, container rebuilt' : 'Subdirectory re-detected (no change)');
       if (res.changed) {
-        // Recharger après rebuild
         setTimeout(() => location.reload(), 1000);
       }
     } else {
