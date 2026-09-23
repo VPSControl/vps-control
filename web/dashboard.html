@@ -243,12 +243,12 @@ overlay?.addEventListener('click', closeSidebar);
 
 async function loadStats() {
   try {
-    const [stats, deployments] = await Promise.all([
-      api('/api/system/stats'),
-      api('/api/deployments'),
-    ]);
+    // Stats renvoie maintenant les compteurs filtrés par user.
+    // Inutile de refetch /api/deployments pour compter : le backend
+    // le fait déjà dans "deployments".
+    const stats = await api('/api/system/stats');
     document.getElementById('stat-services').textContent = `${stats.servicesRunning} / ${stats.servicesTotal}`;
-    document.getElementById('stat-deployments').textContent = deployments.length;
+    document.getElementById('stat-deployments').textContent = stats.deployments;
     document.getElementById('stat-disk').textContent = `${formatBytes(stats.diskUsedBytes)} / ${formatBytes(stats.diskTotalBytes)}`;
     document.getElementById('stat-mem').textContent = `${formatBytes(stats.memUsedBytes)} / ${formatBytes(stats.memTotalBytes)}`;
     document.getElementById('stat-disk-bar').style.width = stats.diskTotalBytes ? `${Math.min(100,(stats.diskUsedBytes/stats.diskTotalBytes)*100)}%` : '0%';
