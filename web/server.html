@@ -86,7 +86,7 @@ tailwind.config = {
   <aside id="app-sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex lg:mt-0 mt-14">
     <div class="p-4 border-b border-border">
       <a href="/servers.html" class="inline-flex items-center gap-2 text-xs text-gray-400 hover:text-accent transition mb-3">
-        <i class="fas fa-arrow-left"></i>All servers
+        <i class="fas fa-arrow-left"></i>My apps
       </a>
       <h2 id="app-name" class="text-base font-bold text-white truncate">—</h2>
       <div class="flex items-center gap-2 mt-2 flex-wrap">
@@ -95,6 +95,7 @@ tailwind.config = {
       </div>
       <p class="text-[11px] mono text-gray-500 mt-2 truncate" id="app-domain">—</p>
       <p class="text-[10px] mono text-gray-600 mt-1 truncate" id="app-subdir" title=""></p>
+      <p class="text-[10px] mono text-gray-600 mt-1 truncate" id="app-server" title=""></p>
     </div>
     <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="app-nav-container"></nav>
     <div class="p-4 border-t border-border text-[11px] text-gray-500">
@@ -314,7 +315,7 @@ tailwind.config = {
         <h2 class="text-lg font-bold text-white">Domains &amp; SSL</h2>
         <button id="btn-domain-add" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add domain</button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Points a domain name at one of this app's ports through Nginx, with an optional free Let's Encrypt certificate (Certbot). Make sure the domain's DNS <strong>A record</strong> already points at this server before adding it.</p>
+      <p class="text-xs text-gray-500 mb-4">Points a domain name at one of this app's ports through Nginx, with an optional free Let's Encrypt certificate (Certbot).</p>
       <div class="bg-panel border border-border rounded-xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
@@ -439,7 +440,7 @@ tailwind.config = {
                 <i class="fas fa-wand-magic-sparkles mr-1"></i>Auto
               </button>
             </div>
-            <p class="field-help">Where the app actually lives inside the repo. Use <code>backend</code> or <code>apps/api</code> if the project isn't at the root. Leave empty if the app is at the root.</p>
+            <p class="field-help">Where the app actually lives inside the repo.</p>
           </div>
 
           <div class="version-row version-node">
@@ -690,6 +691,26 @@ appOverlay?.addEventListener('click', () => {
   appOverlay.classList.add('hidden');
 });
 
+// ============ NAV PRINCIPALE ============
+function buildNav(active, isAdmin) {
+  const items = [
+    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
+    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
+    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
+    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
+    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
+    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
+    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
+    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
+    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
+    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
+    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
+  ];
+  document.getElementById('nav-container').innerHTML = items.filter(i => !i.admin || isAdmin).map(i =>
+    `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}"><i class="fas ${i.icon} w-4"></i><span>${i.label}</span></a>`
+  ).join('');
+}
+
 // ============ APP TABS ============
 const APP_TABS = [
   { id: 'console', icon: 'fa-terminal', label: 'Console', perm: 'console' },
@@ -769,7 +790,7 @@ function activateTab(tab) {
   if (!me) return;
   window.currentUser = me;
   document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
-  renderSidebar('servers');
+  buildNav('servers', me.role === 'admin');
   document.getElementById('btn-logout').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.href = '/index.html';
@@ -795,7 +816,15 @@ async function loadApp() {
       subdirEl.title = `App subdirectory: ${currentApp.appSubdir}`;
     } else {
       subdirEl.textContent = '📁 (repo root)';
-      subdirEl.title = 'App is at the repo root';
+    }
+
+    // L3 : afficher le nom du serveur
+    const serverEl = document.getElementById('app-server');
+    if (res.serverName) {
+      serverEl.textContent = `🖥️ ${res.serverName}`;
+      serverEl.title = `Server: ${res.serverName}`;
+    } else {
+      serverEl.textContent = '';
     }
 
     if (currentApp.status === 'draft') {
@@ -864,7 +893,6 @@ async function refreshLiveStats() {
 }
 
 // ============ CONSOLE ============
-// Tag utilisé pour les messages du panel dans la console.
 const CONSOLE_TAG = 'vpscontrol-deamon';
 
 async function initConsole() {
@@ -893,8 +921,6 @@ async function initConsole() {
       showErrorBanner(res.lastError, res.finishedAt);
     }
 
-    // N'affiche les logs QUE si le conteneur tourne.
-    // Sinon la console reste vide (seul le statut est visible).
     if (isRunning && res.logs && res.logs.trim()) {
       res.logs.split('\n').forEach(line => {
         if (!line.trim()) return;
@@ -903,7 +929,6 @@ async function initConsole() {
       });
     }
   } catch (err) { appendConsoleLine('[error]', err.message, 'muted'); }
-  // Ne lance le stream SSE que si le conteneur tourne.
   if (document.getElementById('console-status-dot').classList.contains('bg-accent')) {
     startConsoleStream();
   }
