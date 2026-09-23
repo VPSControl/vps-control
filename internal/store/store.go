@@ -46,12 +46,6 @@ type Allocation struct {
 // Domain represents a custom hostname pointed at one of an app's
 // allocations, reverse-proxied through the host's Nginx and optionally
 // covered by a Let's Encrypt certificate (Certbot).
-//
-// SSLStatus possibles :
-//   - "none"    → HTTP uniquement, pas de certificat demandé
-//   - "pending" → demande de certificat en cours
-//   - "active"  → certificat valide, HTTPS actif
-//   - "error"   → dernière tentative de certificat en échec (voir SSLError)
 type Domain struct {
 	ID           string    `json:"id"`
 	DeploymentID string    `json:"deploymentId"`
@@ -192,6 +186,23 @@ type Notification struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// GithubToken : un PAT GitHub par utilisateur, utilisé pour cloner
+// des repos privés et (plus tard) lister les repos de l'utilisateur
+// (publics + privés + organisations).
+//
+// Le token est stocké en clair, comme les mots de passe de bases de
+// données dans ce même fichier. Le fichier est en 0600 root-only.
+// Ne jamais renvoyer le token en clair via l'API (sauf au moment de
+// la création si on voulait l'afficher, mais on ne le fait pas).
+type GithubToken struct {
+	UserID     string    `json:"userId"`
+	Token      string    `json:"token"`
+	Username   string    `json:"username"`
+	Scopes     []string  `json:"scopes"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
+}
+
 type data struct {
 	Users         []User          `json:"users"`
 	DBConns       []DBConnection  `json:"dbConnections"`
@@ -204,6 +215,7 @@ type data struct {
 	APITokens     []APIToken      `json:"apiTokens,omitempty"`
 	Notifications []Notification  `json:"notifications,omitempty"`
 	Domains       []Domain        `json:"domains,omitempty"`
+	GithubTokens  []GithubToken   `json:"githubTokens,omitempty"`
 	WebhookSecret string          `json:"webhookSecret,omitempty"`
 }
 
@@ -339,6 +351,15 @@ func (s *Store) DeleteUser(id string) error {
 	}
 	s.d.APITokens = tokKeep
 
+	// Supprimer le token GitHub associé
+	var ghKeep []GithubToken
+	for _, g := range s.d.GithubTokens {
+		if g.UserID != id {
+			ghKeep = append(ghKeep, g)
+		}
+	}
+	s.d.GithubTokens = ghKeep
+
 	return s.saveLocked()
 }
 
@@ -396,18 +417,10 @@ func (s *Store) ListDeployments() []Deployment {
 	return out
 }
 
-// ListDeploymentsForUser : retourne les déploiements visibles par un
-// utilisateur donné : ceux dont il est propriétaire, plus ceux où il
-// est subuser (invitation acceptée).
-//
-// IMPORTANT — isolation stricte : contrairement aux versions précédentes,
-// le rôle "admin" n'accorde PLUS d'accès automatique aux déploiements
-// des autres. Un admin doit être propriétaire ou subuser pour y accéder.
 func (s *Store) ListDeploymentsForUser(userID, role string) []Deployment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Liste des IDs de déploiements où cet utilisateur est subuser.
 	access := map[string]bool{}
 	for _, sub := range s.d.Subusers {
 		if sub.UserID == userID {
@@ -424,9 +437,6 @@ func (s *Store) ListDeploymentsForUser(userID, role string) []Deployment {
 	return out
 }
 
-// ListDeploymentsOwnedBy : retourne uniquement les déploiements dont
-// userID est propriétaire (ignore les subusers). Utile pour les stats
-// "mes services" côté dashboard.
 func (s *Store) ListDeploymentsOwnedBy(userID string) []Deployment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -989,6 +999,65 @@ func (s *Store) DeleteDomain(id string) error {
 	}
 	s.d.Domains = append(s.d.Domains[:idx], s.d.Domains[idx+1:]...)
 	return s.saveLocked()
+}
+
+// ---- GitHub tokens ----
+
+// GetGithubToken retourne le token GitHub d'un user (sans le UserID
+// dans la réponse — la clé est le UserID). Renvoie (zero, false) si
+// l'utilisateur n'a pas connecté son compte GitHub.
+func (s *Store) GetGithubToken(userID string) (GithubToken, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.d.GithubTokens {
+		if g.UserID == userID {
+			return g, true
+		}
+	}
+	return GithubToken{}, false
+}
+
+// SetGithubToken : remplace (ou crée) le token GitHub d'un user.
+// Il n'y a jamais plus d'un token par user.
+func (s *Store) SetGithubToken(g GithubToken) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, existing := range s.d.GithubTokens {
+		if existing.UserID == g.UserID {
+			s.d.GithubTokens[i] = g
+			return s.saveLocked()
+		}
+	}
+	s.d.GithubTokens = append(s.d.GithubTokens, g)
+	return s.saveLocked()
+}
+
+func (s *Store) DeleteGithubToken(userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i, g := range s.d.GithubTokens {
+		if g.UserID == userID {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		return errors.New("no github token for this user")
+	}
+	s.d.GithubTokens = append(s.d.GithubTokens[:idx], s.d.GithubTokens[idx+1:]...)
+	return s.saveLocked()
+}
+
+func (s *Store) TouchGithubToken(userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, g := range s.d.GithubTokens {
+		if g.UserID == userID {
+			s.d.GithubTokens[i].LastUsedAt = time.Now()
+			return s.saveLocked()
+		}
+	}
+	return errors.New("no github token for this user")
 }
 
 // ---- Webhook secret ----
