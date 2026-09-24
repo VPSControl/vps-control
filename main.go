@@ -23,7 +23,7 @@ import (
 	"vpscontrol/internal/store"
 )
 
-//go:embed web/*.html web/style.css web/app.js web/assets/*
+//go:embed web/*.html web/*.css web/*.js web/assets/*
 var webFS embed.FS
 
 func env(key, fallback string) string {
@@ -247,7 +247,7 @@ func main() {
 		case r.Method == "POST" && strings.HasSuffix(path, "/deploy"):
 			permSettings(http.HandlerFunc(deployH.DeployDraft)).ServeHTTP(w, r)
 
-		// ---- Power actions scopées sur l'app (user + admin) ----
+		// ---- Power actions scopées sur l'app ----
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/start"):
 			permConsole(http.HandlerFunc(deployH.PowerStart)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/stop"):
@@ -256,9 +256,6 @@ func main() {
 			permConsole(http.HandlerFunc(deployH.PowerRestart)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/kill"):
 			permConsole(http.HandlerFunc(deployH.PowerKill)).ServeHTTP(w, r)
-		// ---- Reinstall : rebuild complet + recréation ----
-		// Utilise permSettings car c'est une action structurelle (comme
-		// Save & Redeploy), pas juste un restart de process.
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/reinstall"):
 			permSettings(http.HandlerFunc(deployH.PowerReinstall)).ServeHTTP(w, r)
 
