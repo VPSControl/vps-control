@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Servers — VPS Control</title>
+<title>Server — VPS Control</title>
 <link rel="icon" type="image/jpeg" href="/assets/logo-icon.jpg">
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -23,31 +23,28 @@ tailwind.config = {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<style>
-  html, body { background: #0a0f1a; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
-</style>
+<link rel="stylesheet" href="/server.css">
 </head>
 <body class="min-h-screen">
 
+<!-- Mobile top bar -->
 <header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-panel border-b border-border px-4 py-3 flex items-center justify-between">
   <button id="btn-menu" class="text-gray-300 hover:text-white p-2"><i class="fas fa-bars text-xl"></i></button>
-  <span class="text-sm font-semibold text-gray-300">Servers</span>
-  <div class="w-8"></div>
+  <span id="mobile-title" class="text-sm font-semibold text-gray-300 truncate">Server</span>
+  <button id="btn-menu-app" class="text-gray-300 hover:text-white p-2"><i class="fas fa-sliders text-xl"></i></button>
 </header>
 
 <div id="sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
+<div id="app-sidebar-overlay" class="hidden fixed inset-0 bg-black/60 z-40 lg:hidden"></div>
 
 <div class="flex min-h-screen pt-14 lg:pt-0">
-  <aside id="sidebar" class="fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200">
+
+  <!-- Main sidebar -->
+  <aside id="sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex">
     <div class="p-5 border-b border-border flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent">
-          <i class="fas fa-server"></i>
-        </div>
-        <div>
-          <div class="text-sm font-bold text-white">VPS Control</div>
-          <div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div>
-        </div>
+        <div class="w-9 h-9 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center text-accent"><i class="fas fa-server"></i></div>
+        <div><div class="text-sm font-bold text-white">VPS Control</div><div class="text-[10px] uppercase tracking-wider text-gray-500">Admin Panel</div></div>
       </div>
       <button id="btn-close-sidebar" class="lg:hidden text-gray-500 hover:text-white"><i class="fas fa-xmark"></i></button>
     </div>
@@ -60,159 +57,602 @@ tailwind.config = {
     </div>
   </aside>
 
-  <main class="flex-1 min-w-0 p-4 lg:p-8">
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-      <h1 class="text-xl lg:text-2xl font-bold text-white">My apps</h1>
-      <button id="btn-refresh" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 hover:border-accent hover:text-accent transition">
-        <i class="fas fa-rotate mr-2"></i>Refresh
-      </button>
+  <!-- App sidebar -->
+  <aside id="app-sidebar" class="hidden fixed lg:static inset-y-0 left-0 z-50 w-64 bg-panel border-r border-border flex-col transform -translate-x-full lg:translate-x-0 transition-transform duration-200 lg:flex lg:mt-0 mt-14">
+    <div class="p-4 border-b border-border">
+      <a href="/servers.html" class="inline-flex items-center gap-2 text-xs text-gray-400 hover:text-accent transition mb-3">
+        <i class="fas fa-arrow-left"></i>My apps
+      </a>
+      <h2 id="app-name" class="text-base font-bold text-white truncate">—</h2>
+      <div class="flex items-center gap-2 mt-2 flex-wrap">
+        <span id="app-stack" class="inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-accent/15 text-accent">—</span>
+        <span id="app-status" class="inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-panel2 text-gray-400">—</span>
+      </div>
+      <p class="text-[11px] mono text-gray-500 mt-2 truncate" id="app-domain">—</p>
+      <p class="text-[10px] mono text-gray-600 mt-1 truncate" id="app-subdir" title=""></p>
+      <p class="text-[10px] mono text-gray-600 mt-1 truncate" id="app-server" title=""></p>
     </div>
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="app-nav-container"></nav>
+    <div class="p-4 border-t border-border text-[11px] text-gray-500">
+      <span id="app-role">—</span>
+    </div>
+  </aside>
 
-    <div class="bg-panel border border-border rounded-xl overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-border">
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Stack</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Version</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Port</th>
-              <th id="th-owner" class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell" style="display:none">Owner</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Role</th>
-              <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Status</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody id="apps-table">
-            <tr><td colspan="7" class="text-center text-gray-500 py-6">Loading...</td></tr>
-          </tbody>
-        </table>
+  <main class="flex-1 min-w-0 p-4 lg:p-6 pb-20">
+
+    <!-- Draft banner -->
+    <div id="draft-banner" class="hidden bg-amber-light border border-amber rounded-xl p-4 mb-4 flex flex-col sm:flex-row items-start gap-3">
+      <i class="fas fa-box-open text-amber text-xl mt-0.5"></i>
+      <div class="flex-1">
+        <h3 class="text-amber font-bold text-sm">Draft — not deployed yet</h3>
+        <p class="text-amber text-xs mt-1 opacity-90">
+          Files are extracted. Check them in the Files tab, then click "Deploy now" to build and start the app.
+        </p>
+        <button id="btn-deploy-draft" class="mt-3 px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+          <i class="fas fa-rocket mr-2"></i>Deploy now
+        </button>
       </div>
     </div>
+
+    <!-- Error banner -->
+    <div id="error-banner" class="hidden bg-danger/10 border border-danger/40 rounded-xl p-4 mb-4 flex items-start gap-3">
+      <i class="fas fa-triangle-exclamation text-danger text-xl mt-0.5"></i>
+      <div class="flex-1 min-w-0">
+        <h3 class="text-danger font-bold text-sm">The server stopped on an error</h3>
+        <p class="text-danger/80 text-xs mt-1" id="error-time"></p>
+        <pre id="error-content" class="mt-3 p-3 bg-bg border border-danger/30 rounded-lg text-xs text-red-200 overflow-auto max-h-56 whitespace-pre-wrap mono"></pre>
+        <div class="mt-3 flex gap-2 flex-wrap">
+          <button id="btn-edit-error" class="hidden px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-xs transition">
+            <i class="fas fa-pen-to-square mr-1"></i>Open error in editor
+          </button>
+          <button id="btn-go-console" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent text-xs transition">
+            <i class="fas fa-terminal mr-1"></i>Console
+          </button>
+          <button id="btn-dismiss-error" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 text-xs transition">
+            <i class="fas fa-xmark mr-1"></i>Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== CONSOLE ===== -->
+    <section id="tab-console" class="tab-content">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-4">
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">CPU</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-cpu">—</div>
+          <div class="h-1 bg-panel2 rounded-full mt-2 overflow-hidden"><div class="h-full bg-accent transition-all" id="live-cpu-bar" style="width:0%"></div></div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">RAM</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-ram">—</div>
+          <div class="h-1 bg-panel2 rounded-full mt-2 overflow-hidden"><div class="h-full bg-accent transition-all" id="live-ram-bar" style="width:0%"></div></div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Net in</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-netrx">—</div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Net out</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-nettx">—</div>
+        </div>
+        <div class="bg-panel border border-border rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">PIDs</div>
+          <div class="text-sm font-bold mono text-white mt-1" id="live-pids">—</div>
+        </div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-gray-500" id="console-status-dot"></span>
+            <span class="text-gray-400" id="console-status-text">—</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="start">
+              <i class="fas fa-play mr-1"></i>Start
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="restart">
+              <i class="fas fa-rotate mr-1"></i>Restart
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" data-power="stop">
+              <i class="fas fa-stop mr-1"></i>Stop
+            </button>
+            <button class="power-btn text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" data-power="kill">
+              <i class="fas fa-skull mr-1"></i>Kill
+            </button>
+            <button id="btn-console-clear" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Clear">
+              <i class="fas fa-broom"></i>
+            </button>
+            <button id="btn-console-autoscroll" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-accent transition" title="Auto-scroll">
+              <i class="fas fa-arrow-down"></i>
+            </button>
+          </div>
+        </div>
+        <div id="console-output" class="console-output h-[400px] lg:h-[480px] overflow-y-auto p-4 text-xs"></div>
+        <div class="flex items-center gap-2 px-4 py-2.5 border-t border-border bg-panel">
+          <span class="text-accent mono font-bold text-sm">$</span>
+          <input id="console-command" placeholder="Send a command (ls, env, ps aux...)" autocomplete="off" class="!border-0 !bg-transparent !p-0 !shadow-none mono text-xs focus:!shadow-none">
+          <button id="btn-console-send" class="text-xs px-3 py-1.5 rounded-md bg-accent hover:bg-accentDark text-slate-900 font-semibold transition">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FILES ===== -->
+    <section id="tab-files" class="tab-content hidden">
+      <div class="info-banner">
+        <i class="fas fa-lightbulb"></i>
+        <div>
+          <strong>How to apply your changes:</strong><br>
+          Modifying a <strong>code file</strong> (<code>server.js</code>, <code>app.py</code>, <code>index.html</code>) → click <strong>Reinstall</strong> in Settings → Advanced.<br>
+          Modifying a file in <code>uploads/</code>, <code>data/</code> or <code>logs/</code> → applied <strong>instantly</strong>, no action needed.
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div id="files-breadcrumb" class="text-xs mono text-gray-500"></div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-file-new-file" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+            <i class="fas fa-file-circle-plus mr-1"></i>File
+          </button>
+          <button id="btn-file-new-folder" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
+            <i class="fas fa-folder-plus mr-1"></i>Folder
+          </button>
+          <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+            <i class="fas fa-upload mr-1"></i>Upload
+            <input type="file" id="input-file-upload" multiple class="hidden">
+          </label>
+          <label class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition cursor-pointer">
+            <i class="fas fa-file-zipper mr-1"></i>Import ZIP
+            <input type="file" id="input-zip-upload" accept=".zip,.tar,.tar.gz,.tgz" class="hidden">
+          </label>
+        </div>
+      </div>
+
+      <div id="file-selection-bar" class="hidden bg-accent/10 border border-accent/30 rounded-lg px-3 py-2 mb-3 flex items-center justify-between flex-wrap gap-2">
+        <span class="text-xs text-accent" id="file-selection-count">0 selected</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button id="btn-sel-download" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download"><i class="fas fa-download"></i></button>
+          <button id="btn-sel-download-zip" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Download as ZIP"><i class="fas fa-file-zipper"></i></button>
+          <button id="btn-sel-move" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Move"><i class="fas fa-arrows-up-down-left-right"></i></button>
+          <button id="btn-sel-compress" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition" title="Compress"><i class="fas fa-file-archive"></i></button>
+          <button id="btn-sel-delete" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-danger hover:text-danger transition" title="Delete"><i class="fas fa-trash"></i></button>
+          <button id="btn-sel-clear" class="text-xs px-2.5 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 transition" title="Clear"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="w-8 px-3 py-2"><input type="checkbox" id="files-select-all" class="accent-accent w-auto"></th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden sm:table-cell">Size</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3 hidden md:table-cell">Modified</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="app-files-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ENV ===== -->
+    <section id="tab-env" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Environment Variables</h2>
+        <div class="flex gap-2">
+          <button id="btn-env-add" class="text-xs px-3 py-2 rounded-lg bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition"><i class="fas fa-plus mr-1"></i>Add</button>
+          <button id="btn-env-save" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-floppy-disk mr-1"></i>Save all</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Written to <code>{app}/.env</code> and injected into the container on next restart.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3" style="width:35%">Key</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3">Value</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-3 py-3" style="width:100px"></th>
+              </tr>
+            </thead>
+            <tbody id="env-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <p id="env-status" class="text-xs text-gray-500 mt-3"></p>
+    </section>
+
+    <!-- ===== ALLOCATIONS ===== -->
+    <section id="tab-allocations" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Port Allocations</h2>
+        <button id="btn-alloc-add" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add port</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Each port is mapped to the app's internal port. Adding or removing a port restarts the container.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Port</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Label</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Primary</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="alloc-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DOMAINS ===== -->
+    <section id="tab-domains" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Domains &amp; SSL</h2>
+        <button id="btn-domain-add" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add domain</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Points a domain name at one of this app's ports through Nginx, with an optional free Let's Encrypt certificate (Certbot).</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Domain</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Port</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">SSL</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="domain-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== LIMITS ===== -->
+    <section id="tab-limits" class="tab-content hidden">
+      <h2 class="text-lg font-bold text-white mb-4">Resource Limits</h2>
+      <p class="text-xs text-gray-500 mb-4">Applied via Docker on the container. 0 = unlimited.</p>
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">CPU quota (%) — 100 = 1 core</label>
+            <input id="limit-cpu" type="number" min="0" max="10000" step="10" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Memory (MB)</label>
+            <input id="limit-memory" type="number" min="0" step="32" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">PIDs limit</label>
+            <input id="limit-pids" type="number" min="0" step="10" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Disk (MB, informational)</label>
+            <input id="limit-disk" type="number" min="0" step="100" placeholder="0">
+          </div>
+        </div>
+        <button id="btn-limits-save" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition"><i class="fas fa-floppy-disk mr-2"></i>Apply limits</button>
+        <p id="limits-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+    </section>
+
+    <!-- ===== BACKUPS ===== -->
+    <section id="tab-backups" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Backups</h2>
+        <button id="btn-create-backup" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Create backup</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Snapshots of the app files. Node modules, .git and vendor folders are excluded.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Size</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Created</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="backups-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SCHEDULES ===== -->
+    <section id="tab-schedules" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Schedules</h2>
+        <button id="btn-create-schedule" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Add schedule</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Cron expressions (5 fields, standard). Server's timezone.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Name</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">Cron</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Action</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Enabled</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden lg:table-cell">Last run</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="schedules-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SETTINGS ===== -->
+    <section id="tab-settings" class="tab-content hidden">
+      <h2 class="text-lg font-bold text-white mb-4">Startup Configuration</h2>
+      <div class="bg-panel border border-border rounded-xl p-5 max-w-2xl mb-4">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Stack</label>
+            <select id="set-stack">
+              <option value="node">Node.js</option>
+              <option value="react">React SPA</option>
+              <option value="next">Next.js</option>
+              <option value="astro">Astro</option>
+              <option value="sveltekit">SvelteKit</option>
+              <option value="nuxt">Nuxt</option>
+              <option value="python">Python</option>
+              <option value="go">Go</option>
+              <option value="laravel">Laravel / PHP</option>
+              <option value="static">Static</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">App subdirectory</label>
+            <div class="flex gap-2">
+              <input id="set-app-subdir" placeholder="empty = repo root (e.g. backend, apps/api)" class="flex-1">
+              <button type="button" id="btn-detect-subdir" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-xs text-gray-300 hover:border-accent hover:text-accent transition whitespace-nowrap" title="Re-detect automatically">
+                <i class="fas fa-wand-magic-sparkles mr-1"></i>Auto
+              </button>
+            </div>
+            <p class="field-help">Where the app actually lives inside the repo.</p>
+          </div>
+
+          <div class="version-row version-node">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Node.js version</label>
+            <select id="set-node-version">
+              <option value="20">Node 20 (LTS)</option>
+              <option value="21">Node 21</option>
+              <option value="22" selected>Node 22 (LTS)</option>
+              <option value="23">Node 23</option>
+              <option value="24">Node 24 (LTS)</option>
+            </select>
+            <p class="field-help">Changing this rebuilds the image (30s–3min). Node 22 and 24 are LTS.</p>
+          </div>
+          <div class="version-row version-python hidden">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Python version</label>
+            <select id="set-python-version">
+              <option value="3.10">Python 3.10</option>
+              <option value="3.11">Python 3.11</option>
+              <option value="3.12">Python 3.12</option>
+              <option value="3.13">Python 3.13</option>
+            </select>
+          </div>
+          <div class="version-row version-php hidden">
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">PHP version</label>
+            <select id="set-php-version">
+              <option value="8.1">PHP 8.1</option>
+              <option value="8.2">PHP 8.2</option>
+              <option value="8.3">PHP 8.3</option>
+              <option value="8.4">PHP 8.4</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Host port</label>
+            <input id="set-host-port" placeholder="8080">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Internal port</label>
+            <input id="set-internal-port" placeholder="3000">
+          </div>
+        </div>
+        <button id="btn-save-settings" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-arrows-rotate mr-2"></i>Save & Redeploy
+        </button>
+        <p id="settings-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+
+      <!-- ===== ADVANCED (Reinstall) ===== -->
+      <div class="bg-panel border border-amber/30 rounded-xl p-5 max-w-2xl mb-4">
+        <h3 class="font-semibold text-white mb-3 flex items-center gap-2">
+          <i class="fas fa-wrench text-amber"></i>Advanced
+        </h3>
+        <p class="text-xs text-gray-400 mb-4 leading-relaxed">
+          <strong class="text-white">Reinstall</strong> forces a full rebuild of the Docker image and recreates the container.
+          Use this when you:
+        </p>
+        <ul class="text-xs text-gray-400 mb-4 ml-4 list-disc space-y-1">
+          <li>Modified any <strong>code file</strong> — this is the normal way to apply changes</li>
+          <li>Added a dependency (<code>package.json</code>, <code>requirements.txt</code>, <code>composer.json</code>)</li>
+          <li>Changed a framework config file</li>
+          <li>Want to be 100% sure the container uses the latest code</li>
+        </ul>
+        <button id="btn-reinstall" class="px-4 py-2.5 rounded-lg bg-amber hover:bg-amber-dark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-hammer mr-2"></i>Reinstall
+        </button>
+        <p id="reinstall-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+
+      <!-- ===== DANGER ZONE ===== -->
+      <div class="bg-panel border border-danger/30 rounded-xl p-5 max-w-2xl">
+        <h3 class="font-semibold text-danger mb-3 flex items-center gap-2"><i class="fas fa-triangle-exclamation"></i>Danger zone</h3>
+        <button id="btn-delete-app" class="px-3 py-2 rounded-lg bg-panel2 border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition">
+          <i class="fas fa-trash mr-1"></i>Delete this app
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== SUBUSERS ===== -->
+    <section id="tab-subusers" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 class="text-lg font-bold text-white">Collaborators</h2>
+        <button id="btn-open-invite" class="text-xs px-3 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold transition"><i class="fas fa-plus mr-1"></i>Invite</button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Collaborators can only access this app — never the rest of the VPS.</p>
+      <div class="bg-panel border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border">
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3">User</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden sm:table-cell">Permissions</th>
+                <th class="text-left text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3 hidden md:table-cell">Since</th>
+                <th class="text-right text-xs uppercase tracking-wider text-gray-500 font-medium px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody id="subusers-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
-<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[100]"></div>
+<!-- Bottom tab bar (mobile) -->
+<nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-panel border-t border-border z-30 flex" id="bottom-tabs">
+  <button data-tab="console" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-terminal text-base"></i>Console
+  </button>
+  <button data-tab="files" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-folder text-base"></i>Files
+  </button>
+  <button data-tab="settings" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-gear text-base"></i>Settings
+  </button>
+  <button data-tab="subusers" class="flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] text-gray-500">
+    <i class="fas fa-users text-base"></i>Users
+  </button>
+</nav>
+
+<!-- Modals -->
+<div id="alloc-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Add a port</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Port</label>
+    <input id="alloc-port" placeholder="8080">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Label (optional)</label>
+    <input id="alloc-label" placeholder="public / api / websocket">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-alloc-cancel" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-alloc-confirm" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Add</button>
+    </div>
+  </div>
+</div>
+
+<div id="domain-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Add a domain</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Domain name</label>
+    <input id="domain-hostname" placeholder="app.example.com">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Target port (optional)</label>
+    <input id="domain-port" placeholder="defaults to the app's primary port">
+    <label class="flex items-center gap-2 mt-4 text-sm text-gray-300">
+      <input type="checkbox" id="domain-ssl" checked style="width:auto">
+      Request a free Let's Encrypt SSL certificate now
+    </label>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Email for Let's Encrypt (optional)</label>
+    <input id="domain-email" placeholder="you@example.com">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-domain-cancel" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-domain-confirm" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Add domain</button>
+    </div>
+  </div>
+</div>
+
+<div id="backup-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 class="text-lg font-bold text-white mb-4">Create a backup</h3>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Name (optional)</label>
+    <input id="backup-name" placeholder="Before upgrade to Node 22">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Notes (optional)</label>
+    <textarea id="backup-notes" rows="3"></textarea>
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-backup" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-backup" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Create</button>
+    </div>
+  </div>
+</div>
+
+<div id="schedule-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md">
+    <h3 id="schedule-modal-title" class="text-lg font-bold text-white mb-4">Add a schedule</h3>
+    <input type="hidden" id="schedule-id">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Name</label>
+    <input id="schedule-name" placeholder="Daily backup">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Cron expression</label>
+    <input id="schedule-cron" placeholder="0 3 * * *">
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Action</label>
+    <select id="schedule-action">
+      <option value="backup">Backup</option>
+      <option value="restart">Restart container</option>
+      <option value="command">Run command</option>
+    </select>
+    <div id="schedule-command-row" class="hidden mt-4">
+      <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Command</label>
+      <input id="schedule-command" placeholder="php artisan migrate">
+    </div>
+    <label class="flex items-center gap-2 mt-4 text-sm text-gray-300 cursor-pointer">
+      <input type="checkbox" id="schedule-enabled" checked class="accent-accent w-auto"> Enabled
+    </label>
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-schedule" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-schedule" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="invite-modal" class="hidden fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <h3 class="text-lg font-bold text-white mb-4">Invite a collaborator</h3>
+    <p class="text-xs text-gray-500 mb-3">Select permissions:</p>
+    <div class="space-y-2 p-3 rounded-lg bg-bg border border-border">
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="console" checked class="accent-accent w-auto"> Console</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="files.read" checked class="accent-accent w-auto"> Files (read)</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="files.write" class="accent-accent w-auto"> Files (write)</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="settings" class="accent-accent w-auto"> Settings</label>
+      <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer"><input type="checkbox" value="backup" class="accent-accent w-auto"> Backups</label>
+    </div>
+    <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Expires in (hours)</label>
+    <input id="invite-expires" type="number" value="24" min="1" max="720">
+    <div class="flex justify-end gap-2 mt-6">
+      <button id="btn-cancel-invite" class="px-3 py-2 rounded-lg bg-panel2 border border-border text-sm text-gray-300 transition">Cancel</button>
+      <button id="btn-confirm-invite" class="px-4 py-2 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">Generate link</button>
+    </div>
+    <div id="invite-link-result" class="hidden mt-4">
+      <p class="text-xs text-gray-500 mb-2">Share this link:</p>
+      <div class="flex items-center gap-2">
+        <code id="invite-link" class="flex-1 block truncate p-2"></code>
+        <button class="copy-btn px-2 py-2 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition text-xs" data-target="invite-link"><i class="fas fa-copy"></i></button>
+      </div>
+      <p class="text-[10px] text-gray-500 mt-2" id="invite-link-meta"></p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-panel2 border border-accent text-white px-5 py-3 rounded-lg text-sm shadow-2xl hidden z-[200] max-w-[90vw]"></div>
 
 <script src="/app.js"></script>
-<script>
-const sidebar = document.getElementById('sidebar');
-const overlay = document.getElementById('sidebar-overlay');
-document.getElementById('btn-menu')?.addEventListener('click', () => {
-  sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden');
-});
-document.getElementById('btn-close-sidebar')?.addEventListener('click', () => {
-  sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden');
-});
-overlay?.addEventListener('click', () => {
-  sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden');
-});
-
-function buildNav(active, isAdmin) {
-  const items = [
-    { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
-    { href: '/servers.html', icon: 'fa-server', label: 'My apps', id: 'servers' },
-    { href: isAdmin ? '/deploy.html' : '/deploy-user.html', icon: 'fa-rocket', label: 'Deploy', id: 'deploy' },
-    { href: '/servers-admin.html', icon: 'fa-layer-group', label: 'Servers', id: 'servers-admin', admin: true },
-    { href: '/files.html', icon: 'fa-folder', label: 'Files', id: 'files', admin: true },
-    { href: '/services.html', icon: 'fa-cube', label: 'Services', id: 'services', admin: true },
-    { href: '/databases.html', icon: 'fa-database', label: 'Databases', id: 'databases', admin: true },
-    { href: '/users.html', icon: 'fa-users', label: 'Users', id: 'users', admin: true },
-    { href: '/activity.html', icon: 'fa-clock-rotate-left', label: 'Activity', id: 'activity', admin: true },
-    { href: '/tokens.html', icon: 'fa-key', label: 'API Tokens', id: 'tokens' },
-    { href: '/system.html', icon: 'fa-gear', label: 'System', id: 'system', admin: true },
-  ];
-  const html = items.filter(i => !i.admin || isAdmin).map(i => `
-    <a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${i.id === active ? 'bg-accent/10 text-accent' : 'text-gray-400 hover:bg-panel2 hover:text-white transition'}">
-      <i class="fas ${i.icon} w-4"></i><span>${i.label}</span>
-    </a>`).join('');
-  document.getElementById('nav-container').innerHTML = html;
-}
-
-(async function() {
-  const me = await requireAuth();
-  if (!me) return;
-  window.currentUser = me;
-  document.getElementById('current-user').textContent = `${me.username} (${me.role})`;
-  buildNav('servers', me.role === 'admin');
-  document.getElementById('btn-logout').addEventListener('click', async () => {
-    await api('/api/logout', { method: 'POST' }).catch(() => {});
-    location.href = '/index.html';
-  });
-  loadApps();
-  document.getElementById('btn-refresh').addEventListener('click', loadApps);
-})();
-
-function statusBadge(d, svc) {
-  if (d.status === 'draft') return '<span class="px-2 py-1 rounded-md text-xs font-semibold bg-amber-light text-amber">Draft</span>';
-  if (d.status === 'error') return '<span class="px-2 py-1 rounded-md text-xs font-semibold bg-danger/15 text-danger">Error</span>';
-  const isUp = svc && /up/i.test(svc.Status);
-  if (isUp) return '<span class="px-2 py-1 rounded-md text-xs font-semibold bg-accent/15 text-accent">Running</span>';
-  return '<span class="px-2 py-1 rounded-md text-xs font-semibold bg-panel2 text-gray-400">Stopped</span>';
-}
-
-async function loadApps() {
-  const tbody = document.getElementById('apps-table');
-  const isAdmin = window.currentUser && window.currentUser.role === 'admin';
-
-  const thOwner = document.getElementById('th-owner');
-  if (thOwner) thOwner.style.display = isAdmin ? '' : 'none';
-
-  try {
-    const [deps, services, users] = await Promise.all([
-      api('/api/deployments'),
-      api('/api/services').catch(() => []),
-      isAdmin ? api('/api/users').catch(() => []) : Promise.resolve([]),
-    ]);
-    const serviceMap = Object.fromEntries((services || []).map(s => [s.Names, s]));
-    const userMap = Object.fromEntries((users || []).map(u => [u.id, u.username]));
-
-    if (deps.length === 0) {
-      const colCount = isAdmin ? 8 : 7;
-      tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-gray-500 py-6">No app yet.</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = '';
-    deps.forEach(d => {
-      const svc = serviceMap[d.container];
-      const isDraft = d.status === 'draft';
-      const role = d.ownerId === window.currentUser.id ? 'Owner' : 'Collaborator';
-      const sl = stackLabel(d.stack, d);
-      const ownerName = userMap[d.ownerId] || '—';
-
-      const tr = document.createElement('tr');
-      tr.className = 'border-b border-border hover:bg-panel2 transition';
-
-      let html = `
-        <td class="px-4 py-3 text-sm text-white">${escapeHtml(d.name)}</td>
-        <td class="px-4 py-3 text-sm text-gray-400">${escapeHtml(isDraft ? '—' : sl.base)}</td>
-        <td class="px-4 py-3 text-sm text-gray-400 hidden md:table-cell">${escapeHtml(isDraft ? '—' : sl.ver)}</td>
-        <td class="px-4 py-3 text-sm text-gray-400 hidden sm:table-cell">${isDraft ? '—' : `<a href="http://${location.hostname}:${d.port}" target="_blank" class="text-accent hover:underline">${d.port}</a>`}</td>`;
-
-      if (isAdmin) {
-        html += `<td class="px-4 py-3 text-sm text-gray-400 hidden lg:table-cell">${escapeHtml(ownerName)}</td>`;
-      }
-
-      html += `
-        <td class="px-4 py-3 text-sm text-gray-400 hidden lg:table-cell">${role}</td>
-        <td class="px-4 py-3">${statusBadge(d, svc)}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap">
-          <a href="/server.html?id=${d.id}&tab=${isDraft ? 'files' : 'console'}" class="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition mr-1">
-            <i class="fas ${isDraft ? 'fa-sliders' : 'fa-terminal'}"></i>
-          </a>
-          <a href="/server.html?id=${d.id}&tab=settings" class="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-panel2 border border-border text-gray-300 hover:border-accent hover:text-accent transition">
-            <i class="fas fa-gear"></i>
-          </a>
-        </td>`;
-
-      tr.innerHTML = html;
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    const colCount = isAdmin ? 8 : 7;
-    tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-danger py-6">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-</script>
+<script src="/server.js"></script>
 </body>
 </html>
