@@ -146,12 +146,12 @@ func main() {
 	mux.Handle("/api/github/import", authMw(http.HandlerFunc(ghH.Import)))
 
 	// =====================================================================
-	// Servers — user (ses propres serveurs)
+	// Servers — user
 	// =====================================================================
 	mux.Handle("/api/servers/mine", authMw(http.HandlerFunc(srvH.Mine)))
 
 	// =====================================================================
-	// Servers — admin (tous les serveurs)
+	// Servers — admin
 	// =====================================================================
 	mux.Handle("/api/admin/servers", authMw(adminMw(methodSplit(map[string]http.HandlerFunc{
 		"GET":  srvH.ListAll,
@@ -202,11 +202,6 @@ func main() {
 
 	// =====================================================================
 	// Admin — docker services (page globale /services.html)
-	//
-	// Attention : ces routes acceptent n'importe quel nom de conteneur
-	// (elles sont utilisées par la page admin "Docker Services" qui liste
-	// TOUS les conteneurs du VPS). Pour les opérations power scopées sur
-	// une app, utiliser /api/deployments/{id}/power/* ci-dessous.
 	// =====================================================================
 	mux.Handle("/api/services", authMw(adminMw(http.HandlerFunc(svcH.List))))
 	mux.Handle("/api/services/", authMw(adminMw(http.HandlerFunc(serviceDispatch(svcH)))))
@@ -229,7 +224,7 @@ func main() {
 	mux.Handle("/api/system/webhook/regenerate", authMw(adminMw(http.HandlerFunc(sysH.RegenerateWebhookSecret))))
 
 	// =====================================================================
-	// Deployments — création (accessible à tout utilisateur authentifié)
+	// Deployments — création
 	// =====================================================================
 	mux.Handle("/api/deploy/git", authMw(http.HandlerFunc(deployH.DeployGit)))
 	mux.Handle("/api/deploy/upload", authMw(http.HandlerFunc(deployH.DeployUpload)))
@@ -261,6 +256,11 @@ func main() {
 			permConsole(http.HandlerFunc(deployH.PowerRestart)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/kill"):
 			permConsole(http.HandlerFunc(deployH.PowerKill)).ServeHTTP(w, r)
+		// ---- Reinstall : rebuild complet + recréation ----
+		// Utilise permSettings car c'est une action structurelle (comme
+		// Save & Redeploy), pas juste un restart de process.
+		case r.Method == "POST" && strings.HasSuffix(path, "/power/reinstall"):
+			permSettings(http.HandlerFunc(deployH.PowerReinstall)).ServeHTTP(w, r)
 
 		case r.Method == "POST" && strings.HasSuffix(path, "/redeploy"):
 			permSettings(http.HandlerFunc(deployH.Redeploy)).ServeHTTP(w, r)
