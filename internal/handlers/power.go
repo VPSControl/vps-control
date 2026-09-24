@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -92,7 +93,6 @@ func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, act
 // =====================================================================
 
 func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
-	// Le conteneur existe-t-il ?
 	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
 		"--format", "{{.State.Status}}", dep.Container)
 	status := strings.TrimSpace(statusOut)
@@ -112,7 +112,6 @@ func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
 		return
 	}
 
-	// Conteneur existant mais arrêté → docker start
 	out, err := runCommand(30*time.Second, "docker", "start", dep.Container)
 	if err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "docker start failed: "+out)
@@ -201,7 +200,6 @@ func (h *DeployHandlers) doSimpleRestart(w http.ResponseWriter, dep store.Deploy
 // =====================================================================
 
 func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment, trigger string) {
-	// 1. Résoudre le chemin effectif
 	if dep.AppSubdir == "" {
 		dep.AppSubdir = findAppRoot(dep.Path)
 	}
@@ -211,8 +209,8 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		return
 	}
 
-	// 2. Redétecter le stack (au cas où l'utilisateur a ajouté un fichier
-	//    de config framework depuis le dernier build)
+	// Redétecter le stack (au cas où l'utilisateur a ajouté un fichier
+	// de config framework depuis le dernier build)
 	stack := detectStack(effDir)
 	if stack != "" && stack != "auto" {
 		dep.Stack = stack
@@ -223,7 +221,6 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		internalPort = containerPortForStack(dep.Stack)
 	}
 
-	// 3. Régénérer le Dockerfile (écrase toujours — c'est un rebuild)
 	opts := buildOptions{
 		Stack:         dep.Stack,
 		NodeVersion:   normalizeNodeVersion(dep.NodeVersion),
@@ -237,12 +234,10 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		return
 	}
 
-	// 4. Marquer "deploying"
 	dep.Status = "deploying"
 	dep.LastError = ""
 	_ = h.Store.UpdateDeployment(dep)
 
-	// 5. Build (avec --no-cache pour garantir la prise en compte)
 	imageTag := "vpscontrol-" + dep.Name
 	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
 	if err != nil {
@@ -254,10 +249,8 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		return
 	}
 
-	// 6. Supprimer l'ancien conteneur
 	_, _ = runCommand(30*time.Second, "docker", "rm", "-f", dep.Container)
 
-	// 7. Recréer le conteneur avec les nouveaux args
 	runArgs := buildRunArgs(dep, internalPort)
 	out, err = runCommand(30*time.Second, "docker", runArgs...)
 	if err != nil {
@@ -297,7 +290,6 @@ func stackNeedsRebuildOnRestart(dep store.Deployment) bool {
 	case "react", "next", "astro", "sveltekit", "nuxt":
 		return true
 	case "node":
-		// Node générique : rebuild si scripts.build existe.
 		return nodeHasBuildScript(appRoot(dep))
 	default:
 		return false
