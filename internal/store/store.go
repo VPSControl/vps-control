@@ -43,9 +43,6 @@ type Allocation struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// Domain represents a custom hostname pointed at one of an app's
-// allocations, reverse-proxied through the host's Nginx and optionally
-// covered by a Let's Encrypt certificate (Certbot).
 type Domain struct {
 	ID           string    `json:"id"`
 	DeploymentID string    `json:"deploymentId"`
@@ -78,31 +75,19 @@ type Limits struct {
 	PidsLimit int     `json:"pidsLimit"`
 }
 
-// Server : entité logique à la Pterodactyl. Un admin crée un ou plusieurs
-// serveurs et les assigne à un utilisateur. Un utilisateur ne voit que
-// ses propres serveurs, et ne peut y déployer des apps que dans la
-// limite des quotas (disque, nombre d'apps). Les quotas RAM/CPU sont
-// purement indicatifs (partagés au niveau du VPS entier, impossibles à
-// appliquer proprement sans cgroup dédié par serveur).
 type Server struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	OwnerID   string    `json:"ownerId"`   // user à qui appartient ce serveur
-	DiskMB    int       `json:"diskMB"`    // quota disque en MB (0 = illimité)
-	MemoryMB  int       `json:"memoryMB"`  // quota RAM indicatif (0 = illimité)
-	CPUQuota  float64   `json:"cpuQuota"`  // % CPU indicatif (0 = illimité)
-	MaxApps   int       `json:"maxApps"`   // nombre max d'apps (0 = illimité)
+	OwnerID   string    `json:"ownerId"`
+	DiskMB    int       `json:"diskMB"`
+	MemoryMB  int       `json:"memoryMB"`
+	CPUQuota  float64   `json:"cpuQuota"`
+	MaxApps   int       `json:"maxApps"`
 	Notes     string    `json:"notes,omitempty"`
-	CreatedBy string    `json:"createdBy"` // admin qui a créé ce serveur
+	CreatedBy string    `json:"createdBy"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// Deployment Status possibles :
-//   - "draft"      → fichiers importés, pas encore buildé
-//   - "deploying"  → build en cours
-//   - "running"    → conteneur démarré
-//   - "stopped"    → conteneur arrêté manuellement
-//   - "error"      → le conteneur a crashé (dernière erreur dans LastError)
 type Deployment struct {
 	ID            string       `json:"id"`
 	Name          string       `json:"name"`
@@ -113,7 +98,7 @@ type Deployment struct {
 	AppSubdir     string       `json:"appSubdir,omitempty"`
 	Port          string       `json:"port"`
 	Container     string       `json:"container"`
-	ServerID      string       `json:"serverId"` // serveur auquel cette app appartient
+	ServerID      string       `json:"serverId"`
 	NodeVersion   string       `json:"nodeVersion,omitempty"`
 	PythonVersion string       `json:"pythonVersion,omitempty"`
 	PHPVersion    string       `json:"phpVersion,omitempty"`
@@ -265,19 +250,13 @@ func (s *Store) load() error {
 	if err := json.Unmarshal(b, &s.d); err != nil {
 		return err
 	}
-	// Migration L3 : rattacher les déploiements orphelins (créés avant
-	// l'introduction des serveurs) à un serveur "Default" par owner.
 	if migrated := s.migrateOrphanDeployments(); migrated {
 		_ = s.saveLocked()
 	}
 	return nil
 }
 
-// migrateOrphanDeployments : crée un serveur "Default" pour chaque owner
-// qui a des déploiements sans ServerID, puis rattache ces déploiements.
-// Retourne true si quelque chose a été modifié.
 func (s *Store) migrateOrphanDeployments() bool {
-	// Regrouper les déploiements orphelins par owner.
 	orphansByOwner := map[string][]int{}
 	for i, d := range s.d.Deployments {
 		if d.ServerID == "" && d.OwnerID != "" {
@@ -287,35 +266,29 @@ func (s *Store) migrateOrphanDeployments() bool {
 	if len(orphansByOwner) == 0 {
 		return false
 	}
-
-	// Pour chaque owner orphelin, soit on réutilise un serveur "Default"
-	// existant (même nom), soit on en crée un nouveau.
 	for ownerID, idxs := range orphansByOwner {
 		serverID := ""
-		// Chercher un serveur existant pour cet owner qui s'appelle "Default".
 		for _, srv := range s.d.Servers {
 			if srv.OwnerID == ownerID && srv.Name == "Default" {
 				serverID = srv.ID
 				break
 			}
 		}
-		// Sinon en créer un.
 		if serverID == "" {
 			serverID = "srv-default-" + ownerID
 			s.d.Servers = append(s.d.Servers, Server{
 				ID:        serverID,
 				Name:      "Default",
 				OwnerID:   ownerID,
-				DiskMB:    0, // illimité
+				DiskMB:    0,
 				MemoryMB:  0,
 				CPUQuota:  0,
-				MaxApps:   0, // illimité
+				MaxApps:   0,
 				Notes:     "Auto-created during migration to the servers model.",
 				CreatedBy: "system",
 				CreatedAt: time.Now(),
 			})
 		}
-		// Rattacher les déploiements orphelins.
 		for _, idx := range idxs {
 			s.d.Deployments[idx].ServerID = serverID
 		}
@@ -430,8 +403,6 @@ func (s *Store) DeleteUser(id string) error {
 	}
 	s.d.GithubTokens = ghKeep
 
-	// L4 : supprimer aussi les serveurs et déploiements de cet user.
-	// (Pour l'instant : suppression best-effort, sans toucher au disque.)
 	var srvKeep []Server
 	for _, srv := range s.d.Servers {
 		if srv.OwnerID != id {
@@ -449,6 +420,44 @@ func (s *Store) DeleteUser(id string) error {
 	s.d.Deployments = depKeep
 
 	return s.saveLocked()
+}
+
+// UpdateUsername change le username d'un utilisateur, en vérifiant
+// qu'aucun autre utilisateur n'a déjà ce nom.
+func (s *Store) UpdateUsername(userID, newUsername string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.d.Users {
+		if u.ID != userID && strings.EqualFold(u.Username, newUsername) {
+			return errors.New("this username is already taken")
+		}
+	}
+	for i, u := range s.d.Users {
+		if u.ID == userID {
+			s.d.Users[i].Username = newUsername
+			return s.saveLocked()
+		}
+	}
+	return errors.New("user not found")
+}
+
+// ChangePassword remplace le hash et le sel d'un utilisateur.
+func (s *Store) ChangePassword(userID, newHash, newSalt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, u := range s.d.Users {
+		if u.ID == userID {
+			s.d.Users[i].PasswordHash = newHash
+			s.d.Users[i].Salt = newSalt
+			return s.saveLocked()
+		}
+	}
+	return errors.New("user not found")
+}
+
+// ResetUserPassword alias de ChangePassword, utilisé par le CLI.
+func (s *Store) ResetUserPassword(userID, newHash, newSalt string) error {
+	return s.ChangePassword(userID, newHash, newSalt)
 }
 
 // ---- DB connections ----
@@ -505,8 +514,6 @@ func (s *Store) ListServers() []Server {
 	return out
 }
 
-// ListServersForUser : retourne les serveurs possédés par cet utilisateur.
-// Pour un admin qui veut voir TOUS les serveurs, utiliser ListServers.
 func (s *Store) ListServersForUser(userID string) []Server {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -570,7 +577,6 @@ func (s *Store) DeleteServer(id string) error {
 	return s.saveLocked()
 }
 
-// CountAppsInServer : nombre de déploiements rattachés à ce serveur.
 func (s *Store) CountAppsInServer(serverID string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -583,9 +589,6 @@ func (s *Store) CountAppsInServer(serverID string) int {
 	return n
 }
 
-// DiskUsedByServer : somme des tailles des dossiers d'apps du serveur,
-// en MB. Utilise os.Stat récursif. Peut être lent si beaucoup de
-// fichiers, mais c'est acceptable pour un usage panel.
 func (s *Store) DiskUsedByServer(serverID string) int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -596,11 +599,9 @@ func (s *Store) DiskUsedByServer(serverID string) int64 {
 		}
 		total += dirSize(d.Path)
 	}
-	return total / (1024 * 1024) // → MB
+	return total / (1024 * 1024)
 }
 
-// dirSize calcule la taille totale d'un dossier en bytes.
-// Ignore les erreurs (fichiers supprimés pendant le parcours, permissions…).
 func dirSize(path string) int64 {
 	var total int64
 	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
@@ -657,7 +658,6 @@ func (s *Store) ListDeploymentsOwnedBy(userID string) []Deployment {
 	return out
 }
 
-// ListDeploymentsInServer : tous les déploiements rattachés à un serveur.
 func (s *Store) ListDeploymentsInServer(serverID string) []Deployment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
