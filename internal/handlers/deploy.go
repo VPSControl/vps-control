@@ -27,17 +27,25 @@ type DeployHandlers struct {
 
 var appNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
 
-var allowedNodeVersions = map[string]bool{"18": true, "20": true, "22": true}
-var allowedPythonVersions = map[string]bool{"3.10": true, "3.11": true, "3.12": true}
-var allowedPHPVersions = map[string]bool{"8.1": true, "8.2": true, "8.3": true}
+// Versions supportées
+var allowedNodeVersions = map[string]bool{
+	"20": true,
+	"21": true,
+	"22": true,
+	"23": true,
+	"24": true,
+}
+var allowedPythonVersions = map[string]bool{"3.10": true, "3.11": true, "3.12": true, "3.13": true}
+var allowedPHPVersions = map[string]bool{"8.1": true, "8.2": true, "8.3": true, "8.4": true}
 
+// Limite d'upload pour les ZIP (30 MB).
 const maxUploadSize = 30 * 1024 * 1024
 
 func normalizeNodeVersion(v string) string {
 	if allowedNodeVersions[v] {
 		return v
 	}
-	return "20"
+	return "22"
 }
 func normalizePythonVersion(v string) string {
 	if allowedPythonVersions[v] {
@@ -253,9 +261,42 @@ func resolveSubdirInput(input string) (string, error) {
 
 // =====================================================================
 // Dockerfiles
+//
+// Règle hybride (Wings-like) :
+//   - Stacks SANS build step → Dockerfile minimal, code monté en volume
+//   - Stacks AVEC build step → Dockerfile classique, code dans l'image
 // =====================================================================
 
-func dockerfileLaravelPHP(phpVersion string) string {
+// --- Stacks VOLUME (code monté, pas de COPY . .) ---
+
+func dockerfileNodeVolume(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+# Les dépendances sont installées dans l'image.
+# Le code source vient du volume monté à l'exécution.
+COPY package*.json ./
+RUN npm install --omit=dev || npm install --production
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+CMD ["npm", "start"]
+`, nodeVersion, port, port)
+}
+
+func dockerfilePythonVolume(pythonVersion, port string) string {
+	return fmt.Sprintf(`FROM python:%s-slim
+WORKDIR /app
+# Dépendances dans l'image, code depuis le volume monté.
+COPY requirements.txt* ./
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+ENV PORT=%s
+ENV PYTHONUNBUFFERED=1
+EXPOSE %s
+CMD ["python", "app.py"]
+`, pythonVersion, port, port)
+}
+
+func dockerfileLaravelVolume(phpVersion string) string {
 	return fmt.Sprintf(`FROM php:%s-apache
 RUN apt-get update && apt-get install -y \
     git unzip libzip-dev libpng-dev libonig-dev libxml2-dev \
@@ -264,10 +305,7 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
-COPY . .
-RUN composer install --no-dev --optimize-autoloader || true
-RUN chown -R www-data:www-data /var/www/html \
- && chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true
+# Le code est monté en volume. On prépare juste l'environnement Apache.
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
  && sed -ri 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
@@ -275,38 +313,30 @@ EXPOSE 80
 `, phpVersion)
 }
 
-func dockerfileNode(nodeVersion, port string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --omit=dev || npm install --production
-COPY . .
-ENV NODE_ENV=production
-ENV PORT=%s
-EXPOSE %s
-CMD ["npm", "start"]
-`, nodeVersion, port, port)
-}
-
-func dockerfilePython(pythonVersion, port string) string {
-	return fmt.Sprintf(`FROM python:%s-slim
-WORKDIR /app
-COPY requirements.txt* ./
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-COPY . .
-ENV PORT=%s
-ENV PYTHONUNBUFFERED=1
-EXPOSE %s
-CMD ["python", "app.py"]
-`, pythonVersion, port, port)
-}
-
-func dockerfileStatic() string {
+func dockerfileStaticVolume() string {
 	return `FROM nginx:alpine
-COPY . /usr/share/nginx/html
+# Le code est monté en volume dans /usr/share/nginx/html.
+# Rien à copier : Nginx lira directement depuis le volume.
 EXPOSE 80
 `
 }
+
+func dockerfileGoVolume(port string) string {
+	return fmt.Sprintf(`FROM golang:1.22-alpine AS build
+WORKDIR /src
+# Le code est monté à l'exécution, mais pour compiler on a besoin du code
+# au moment du build. Compromis : on compile au premier run via un script
+# d'entrée. Ici on prépare juste l'environnement Go.
+RUN apk add --no-cache git
+WORKDIR /app
+ENV PORT=%s
+EXPOSE %s
+# Le binaire est compilé au runtime (via un entrypoint) ou fourni par le volume.
+CMD ["sh", "-c", "go build -o server . && ./server"]
+`, port, port)
+}
+
+// --- Stacks CLASSIQUES (code copié dans l'image, avec build) ---
 
 func dockerfileReact(nodeVersion, buildDir string) string {
 	return fmt.Sprintf(`FROM node:%s-alpine AS build
@@ -444,6 +474,8 @@ func detectStack(dir string) string {
 		return "laravel"
 	case has("requirements.txt") || has("app.py") || has("manage.py"):
 		return "python"
+	case has("go.mod"):
+		return "go"
 	case has("index.html") || has("index.htm"):
 		return "static"
 	default:
@@ -523,11 +555,11 @@ type buildOptions struct {
 	InternalPort  string
 }
 
-func writeDockerfileIfMissing(dir string, opts buildOptions) error {
+// writeDockerfile écrit TOUJOURS un nouveau Dockerfile, écrasant
+// l'existant s'il y en a un. Utilisé par UpdateSettings, Redeploy,
+// Reinstall — tous les cas où on régénère la config.
+func writeDockerfile(dir string, opts buildOptions) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
-	if _, err := os.Stat(dockerfilePath); err == nil {
-		return nil
-	}
 	internal := opts.InternalPort
 	if internal == "" {
 		internal = opts.HostPort
@@ -535,9 +567,9 @@ func writeDockerfileIfMissing(dir string, opts buildOptions) error {
 	var content string
 	switch opts.Stack {
 	case "laravel":
-		content = dockerfileLaravelPHP(opts.PHPVersion)
+		content = dockerfileLaravelVolume(opts.PHPVersion)
 	case "node":
-		content = dockerfileNode(opts.NodeVersion, internal)
+		content = dockerfileNodeVolume(opts.NodeVersion, internal)
 	case "react":
 		content = dockerfileReact(opts.NodeVersion, reactBuildDir(dir))
 	case "next":
@@ -549,11 +581,24 @@ func writeDockerfileIfMissing(dir string, opts buildOptions) error {
 	case "nuxt":
 		content = dockerfileNuxt(opts.NodeVersion, internal)
 	case "python":
-		content = dockerfilePython(opts.PythonVersion, internal)
+		content = dockerfilePythonVolume(opts.PythonVersion, internal)
+	case "go":
+		content = dockerfileGoVolume(internal)
 	default:
-		content = dockerfileStatic()
+		content = dockerfileStaticVolume()
 	}
 	return os.WriteFile(dockerfilePath, []byte(content), 0o644)
+}
+
+// writeDockerfileIfMissing écrit un Dockerfile seulement s'il n'existe
+// pas déjà. Utilisé aux premiers déploiements (DeployGit, DeployUpload,
+// DeployDraft) pour respecter un Dockerfile fourni par l'utilisateur.
+func writeDockerfileIfMissing(dir string, opts buildOptions) error {
+	dockerfilePath := filepath.Join(dir, "Dockerfile")
+	if _, err := os.Stat(dockerfilePath); err == nil {
+		return nil
+	}
+	return writeDockerfile(dir, opts)
 }
 
 func containerPortForStack(stack string) string {
@@ -566,6 +611,8 @@ func containerPortForStack(stack string) string {
 		return "80"
 	case "python":
 		return "5000"
+	case "go":
+		return "8080"
 	default:
 		return "80"
 	}
@@ -628,7 +675,7 @@ func (h *DeployHandlers) SuggestPort(w http.ResponseWriter, r *http.Request) {
 
 type deployGitRequest struct {
 	Name           string `json:"name"`
-	ServerID       string `json:"serverId"` // ← L3 : obligatoire
+	ServerID       string `json:"serverId"`
 	RepoURL        string `json:"repoUrl"`
 	Stack          string `json:"stack"`
 	Port           string `json:"port"`
@@ -656,7 +703,6 @@ func (h *DeployHandlers) DeployGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---- L3 : valider le serveur cible ----
 	sh := &ServerHandlers{Store: h.Store}
 	serverID, err := sh.resolveServerID(user, req.ServerID)
 	if err != nil {
@@ -785,7 +831,6 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ---- L3 : valider le serveur cible ----
 	sh := &ServerHandlers{Store: h.Store}
 	validServerID, err := sh.resolveServerID(user, serverID)
 	if err != nil {
@@ -891,7 +936,7 @@ func (h *DeployHandlers) DeployUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// DeployDraft
+// DeployDraft : build + start un draft
 // =====================================================================
 
 func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
@@ -902,7 +947,6 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// L3 : vérifier le quota du serveur (au cas où il aurait changé)
 	sh := &ServerHandlers{Store: h.Store}
 	if dep.ServerID != "" {
 		if ok, msg := sh.checkServerQuota(dep.ServerID); !ok {
@@ -936,8 +980,7 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 		HostPort:      dep.Port,
 		InternalPort:  internalPort,
 	}
-	dockerfilePath := filepath.Join(effDir, "Dockerfile")
-	_ = os.Remove(dockerfilePath)
+	// Premier déploiement : on respecte un Dockerfile utilisateur s'il existe.
 	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "failed to write Dockerfile: "+err.Error())
 		return
@@ -988,7 +1031,7 @@ func (h *DeployHandlers) DeployDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// buildAndRun — reçoit maintenant serverID
+// buildAndRun — utilisé par DeployGit et GithubHandlers.Import
 // =====================================================================
 
 func (h *DeployHandlers) buildAndRun(w http.ResponseWriter, name, serverID, targetDir, effectiveDir, appSubdir string, opts buildOptions, sourceType, sourceRef, ownerID string) {
@@ -1087,7 +1130,6 @@ func (h *DeployHandlers) Get(w http.ResponseWriter, r *http.Request) {
 	perms, _ := middleware.PermissionsFromContext(r.Context())
 	h.enrichStatus(&dep)
 
-	// L3 : enrichir avec le nom du serveur pour l'UI.
 	serverName := ""
 	if dep.ServerID != "" {
 		if srv, ok := h.Store.FindServerByID(dep.ServerID); ok {
@@ -1155,7 +1197,7 @@ func (h *DeployHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// Redeploy
+// Redeploy — rebuild complet (utilisé par /redeploy)
 // =====================================================================
 
 func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
@@ -1194,13 +1236,16 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 		HostPort:      dep.Port,
 		InternalPort:  internalPort,
 	}
-	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
+	// Rebuild : on régénère TOUJOURS le Dockerfile (écrase l'existant),
+	// car l'utilisateur veut explicitement re-déployer.
+	if err := writeDockerfile(effDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
+	// --no-cache pour garantir que le nouveau Dockerfile est pris en compte.
+	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("build failed:\n" + out)
@@ -1229,7 +1274,7 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// UpdateSettings
+// UpdateSettings — fix du changement de version
 // =====================================================================
 
 type updateSettingsRequest struct {
@@ -1257,7 +1302,8 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 
 	validStacks := map[string]bool{
 		"laravel": true, "node": true, "react": true, "next": true,
-		"astro": true, "sveltekit": true, "nuxt": true, "python": true, "static": true,
+		"astro": true, "sveltekit": true, "nuxt": true, "python": true,
+		"go": true, "static": true,
 	}
 	if req.Stack != "" && !validStacks[req.Stack] {
 		middleware.JSONError(w, http.StatusBadRequest, "invalid stack")
@@ -1273,7 +1319,7 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 	newNodeVersion := dep.NodeVersion
 	if req.NodeVersion != "" && req.NodeVersion != dep.NodeVersion {
 		if !allowedNodeVersions[req.NodeVersion] {
-			middleware.JSONError(w, http.StatusBadRequest, "invalid node version")
+			middleware.JSONError(w, http.StatusBadRequest, "invalid node version (allowed: 20, 21, 22, 23, 24)")
 			return
 		}
 		newNodeVersion = req.NodeVersion
@@ -1380,15 +1426,17 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 		HostPort:      newHostPort,
 		InternalPort:  newInternalPort,
 	}
-	dockerfilePath := filepath.Join(effDir, "Dockerfile")
-	_ = os.Remove(dockerfilePath)
-	if err := writeDockerfileIfMissing(effDir, opts); err != nil {
+
+	// FIX DU BUG : on ÉCRASE toujours le Dockerfile (writeDockerfile au
+	// lieu de os.Remove + writeIfMissing), et on force --no-cache pour
+	// que le nouveau FROM node:XX soit bien utilisé.
+	if err := writeDockerfile(effDir, opts); err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "failed to regenerate Dockerfile: "+err.Error())
 		return
 	}
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
+	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
