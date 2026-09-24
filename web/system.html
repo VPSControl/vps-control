@@ -87,9 +87,6 @@ tailwind.config = {
 
       <!-- Password -->
       <div>
-        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Current password</label>
-        <input id="profile-current-password" type="password" autocomplete="current-password" placeholder="your current password" class="mb-3">
-
         <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">New password</label>
         <input id="profile-new-password" type="password" minlength="8" autocomplete="new-password" placeholder="at least 8 characters" class="mb-3">
 
@@ -256,9 +253,8 @@ function buildNav(active, isAdmin) {
     }
   });
 
-  // ---- Changement de mot de passe ----
+  // ---- Changement de mot de passe (SANS ancien mot de passe) ----
   document.getElementById('btn-save-password').addEventListener('click', async () => {
-    const currentEl = document.getElementById('profile-current-password');
     const newEl = document.getElementById('profile-new-password');
     const confirmEl = document.getElementById('profile-confirm-password');
     const status = document.getElementById('password-status');
@@ -267,15 +263,9 @@ function buildNav(active, isAdmin) {
     status.textContent = '';
     status.className = 'text-xs text-gray-500 mt-2 min-h-[16px]';
 
-    const current = currentEl.value;
     const newPass = newEl.value;
     const confirm = confirmEl.value;
 
-    if (!current) {
-      status.textContent = 'Current password is required.';
-      status.className = 'text-xs text-danger mt-2 min-h-[16px]';
-      return;
-    }
     if (!newPass || newPass.length < 8) {
       status.textContent = 'New password must be at least 8 characters.';
       status.className = 'text-xs text-danger mt-2 min-h-[16px]';
@@ -294,13 +284,9 @@ function buildNav(active, isAdmin) {
     try {
       await api('/api/profile', {
         method: 'PUT',
-        body: JSON.stringify({
-          currentPassword: current,
-          newPassword: newPass,
-        }),
+        body: JSON.stringify({ newPassword: newPass }),
       });
 
-      currentEl.value = '';
       newEl.value = '';
       confirmEl.value = '';
       status.textContent = '✓ Password changed successfully.';
