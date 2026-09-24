@@ -2,7 +2,12 @@
 //
 // Permet à n'importe quel utilisateur (admin ou viewer) de :
 //   - changer son nom d'utilisateur
-//   - changer son mot de passe (avec vérification de l'ancien)
+//   - changer son mot de passe (SANS avoir besoin de l'ancien)
+//
+// NOTE : l'accès à ces endpoints est protégé par la session en cours.
+// Si quelqu'un a déjà ta session, il peut changer ton mot de passe.
+// C'est un choix : l'utilisateur qui a oublié son mot de passe peut le
+// changer depuis son panel sans passer par le CLI.
 package handlers
 
 import (
@@ -21,17 +26,16 @@ type ProfileHandlers struct {
 }
 
 type updateProfileRequest struct {
-	Username        string `json:"username"`
-	CurrentPassword string `json:"currentPassword"`
-	NewPassword     string `json:"newPassword"`
+	Username    string `json:"username"`
+	NewPassword string `json:"newPassword"`
 }
 
 // Update : PUT /api/profile
 //
 // Body :
-//   { "username": "nouveau_nom" }                                    → change juste le username
-//   { "currentPassword": "...", "newPassword": "..." }               → change juste le mot de passe
-//   { "username": "...", "currentPassword": "...", "newPassword": "" } → change les deux
+//   { "username": "nouveau_nom" }              → change le username
+//   { "newPassword": "nouveau_mdp" }           → change le mot de passe
+//   { "username": "...", "newPassword": "..." } → change les deux
 func (h *ProfileHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -63,21 +67,10 @@ func (h *ProfileHandlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ---- Changement de mot de passe ----
+	// Pas de vérification de l'ancien mot de passe : c'est volontaire.
+	// L'utilisateur est déjà authentifié (session valide), et on veut
+	// qu'il puisse changer son mot de passe même s'il l'a oublié.
 	if req.NewPassword != "" {
-		if req.CurrentPassword == "" {
-			middleware.JSONError(w, http.StatusBadRequest, "current password is required")
-			return
-		}
-		// Recharger l'utilisateur pour avoir le hash à jour
-		fresh, ok := h.Store.FindUserByID(user.ID)
-		if !ok {
-			middleware.JSONError(w, http.StatusInternalServerError, "user not found")
-			return
-		}
-		if !auth.VerifyPassword(req.CurrentPassword, fresh.PasswordHash, fresh.Salt) {
-			middleware.JSONError(w, http.StatusForbidden, "current password is incorrect")
-			return
-		}
 		if len(req.NewPassword) < 8 {
 			middleware.JSONError(w, http.StatusBadRequest, "new password must be at least 8 characters")
 			return
