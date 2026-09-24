@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -12,15 +11,22 @@ import (
 )
 
 // =====================================================================
-// Power actions scopées sur une app.
+// Power actions scopées sur une app (modèle Wings).
+//
+// Le code et les données vivent dans un VOLUME monté à /app.
+// Modifier un fichier dans le panel → Restart → c'est appliqué.
+// Pas besoin de rebuild, sauf pour changer la version de l'environnement
+// (Node, Python, PHP), ce que fait Reinstall.
 //
 //   - Start     → démarre le conteneur. S'il n'existe pas, build + run.
-//   - Restart   → INTELLIGENT : rebuild automatique si le stack a un
-//                 step de build (React, Next, Vite, Astro, SvelteKit,
-//                 Nuxt) OU si Node a un script build. Sinon, restart.
+//   - Restart   → docker restart (instantané, ~1-3s). Le conteneur
+//                 redémarre et lit les fichiers du volume. Suffit pour
+//                 TOUS les stacks, y compris React/Next (le CMD du
+//                 Dockerfile regénère le build si nécessaire).
 //   - Stop      → docker stop.
 //   - Kill      → docker kill.
-//   - Reinstall → rebuild forcé + recréation du conteneur.
+//   - Reinstall → rebuild l'image (utile uniquement si on change la
+//                 version Node/Python/PHP dans Settings).
 // =====================================================================
 
 func (h *DeployHandlers) PowerStart(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +49,10 @@ func (h *DeployHandlers) PowerReinstall(w http.ResponseWriter, r *http.Request) 
 	h.powerAction(w, r, "reinstall")
 }
 
+// =====================================================================
+// powerAction — dispatcher
+// =====================================================================
+
 func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, action string) {
 	dep, ok := middleware.DeploymentFromContext(r.Context())
 	if !ok {
@@ -63,11 +73,7 @@ func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, act
 	case "kill":
 		h.doKill(w, dep)
 	case "restart":
-		if stackNeedsRebuildOnRestart(dep) {
-			h.doReinstall(w, dep, "restart (auto-rebuild)")
-		} else {
-			h.doSimpleRestart(w, dep)
-		}
+		h.doSimpleRestart(w, dep)
 	case "reinstall":
 		h.doReinstall(w, dep, "reinstall")
 	default:
@@ -75,12 +81,17 @@ func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, act
 	}
 }
 
+// =====================================================================
+// Start
+// =====================================================================
+
 func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
 	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
 		"--format", "{{.State.Status}}", dep.Container)
 	status := strings.TrimSpace(statusOut)
 
 	if status == "" {
+		// Le conteneur n'existe pas — on lance un déploiement complet.
 		h.doReinstall(w, dep, "start (initial build)")
 		return
 	}
@@ -111,6 +122,10 @@ func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
 	})
 }
 
+// =====================================================================
+// Stop
+// =====================================================================
+
 func (h *DeployHandlers) doStop(w http.ResponseWriter, dep store.Deployment) {
 	out, err := runCommand(30*time.Second, "docker", "stop", dep.Container)
 	if err != nil {
@@ -127,6 +142,10 @@ func (h *DeployHandlers) doStop(w http.ResponseWriter, dep store.Deployment) {
 		"output": out,
 	})
 }
+
+// =====================================================================
+// Kill
+// =====================================================================
 
 func (h *DeployHandlers) doKill(w http.ResponseWriter, dep store.Deployment) {
 	out, err := runCommand(30*time.Second, "docker", "kill", dep.Container)
@@ -145,8 +164,12 @@ func (h *DeployHandlers) doKill(w http.ResponseWriter, dep store.Deployment) {
 	})
 }
 
+// =====================================================================
+// Simple restart — docker restart (rapide, prend les modifs du volume)
+// =====================================================================
+
 func (h *DeployHandlers) doSimpleRestart(w http.ResponseWriter, dep store.Deployment) {
-	out, err := runCommand(45*time.Second, "docker", "restart", dep.Container)
+	out, err := runCommand(60*time.Second, "docker", "restart", dep.Container)
 	if err != nil {
 		middleware.JSONError(w, http.StatusInternalServerError, "docker restart failed: "+out)
 		return
@@ -160,10 +183,14 @@ func (h *DeployHandlers) doSimpleRestart(w http.ResponseWriter, dep store.Deploy
 		"ok":      true,
 		"action":  "restart",
 		"mode":    "fast",
-		"message": "Container restarted. The code was NOT rebuilt.",
+		"message": "Container restarted. Your file changes are now live.",
 		"output":  out,
 	})
 }
+
+// =====================================================================
+// Reinstall — rebuild l'image (rarement utile, pour changer de version)
+// =====================================================================
 
 func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment, trigger string) {
 	if dep.AppSubdir == "" {
@@ -203,7 +230,7 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 	_ = h.Store.UpdateDeployment(dep)
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
@@ -234,34 +261,7 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		"action":  "reinstall",
 		"trigger": trigger,
 		"stack":   dep.Stack,
-		"message": "Container rebuilt and restarted. Your changes are now live.",
+		"message": "Container image rebuilt. Your code is safe in the volume.",
 		"output":  out,
 	})
-}
-
-func stackNeedsRebuildOnRestart(dep store.Deployment) bool {
-	switch dep.Stack {
-	case "react", "next", "astro", "sveltekit", "nuxt":
-		return true
-	case "node":
-		return nodeHasBuildScript(appRoot(dep))
-	default:
-		return false
-	}
-}
-
-// nodeHasBuildScript vérifie si package.json contient un script "build".
-func nodeHasBuildScript(dir string) bool {
-	b, err := os.ReadFile(dir + "/package.json")
-	if err != nil {
-		return false
-	}
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal(b, &pkg); err != nil {
-		return false
-	}
-	_, ok := pkg.Scripts["build"]
-	return ok
 }
