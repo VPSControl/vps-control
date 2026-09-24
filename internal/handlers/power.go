@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -13,17 +14,13 @@ import (
 // =====================================================================
 // Power actions scopées sur une app.
 //
-// Le code est dans l'image (immuable après build). Un simple Restart ne
-// reflète PAS les modifications de code — il faut un Reinstall.
-//
 //   - Start     → démarre le conteneur. S'il n'existe pas, build + run.
 //   - Restart   → INTELLIGENT : rebuild automatique si le stack a un
 //                 step de build (React, Next, Vite, Astro, SvelteKit,
 //                 Nuxt) OU si Node a un script build. Sinon, restart.
 //   - Stop      → docker stop.
 //   - Kill      → docker kill.
-//   - Reinstall → rebuild forcé + recréation. À utiliser après toute
-//                 modification de code.
+//   - Reinstall → rebuild forcé + recréation du conteneur.
 // =====================================================================
 
 func (h *DeployHandlers) PowerStart(w http.ResponseWriter, r *http.Request) {
@@ -45,10 +42,6 @@ func (h *DeployHandlers) PowerKill(w http.ResponseWriter, r *http.Request) {
 func (h *DeployHandlers) PowerReinstall(w http.ResponseWriter, r *http.Request) {
 	h.powerAction(w, r, "reinstall")
 }
-
-// =====================================================================
-// powerAction — dispatcher
-// =====================================================================
 
 func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, action string) {
 	dep, ok := middleware.DeploymentFromContext(r.Context())
@@ -255,4 +248,20 @@ func stackNeedsRebuildOnRestart(dep store.Deployment) bool {
 	default:
 		return false
 	}
+}
+
+// nodeHasBuildScript vérifie si package.json contient un script "build".
+func nodeHasBuildScript(dir string) bool {
+	b, err := os.ReadFile(dir + "/package.json")
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(b, &pkg); err != nil {
+		return false
+	}
+	_, ok := pkg.Scripts["build"]
+	return ok
 }
