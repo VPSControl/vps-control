@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -14,7 +15,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"vpscontrol/internal/auth"
 	"vpscontrol/internal/handlers"
@@ -34,6 +38,191 @@ func env(key, fallback string) string {
 }
 
 func main() {
+	// ---- Sous-commandes CLI ----
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "reset-password":
+			if len(os.Args) < 3 {
+				fmt.Fprintln(os.Stderr, "Usage: vpscontrol reset-password <username>")
+				os.Exit(1)
+			}
+			runResetPassword(os.Args[2])
+			return
+		case "list-users":
+			runListUsers()
+			return
+		case "version":
+			fmt.Println("VPS Control — see /api/system/info for the commit")
+			return
+		case "help", "--help", "-h":
+			printHelp()
+			return
+		}
+	}
+
+	// ---- Mode serveur (normal) ----
+	runServer()
+}
+
+// =====================================================================
+// CLI : reset-password
+// =====================================================================
+
+func runResetPassword(username string) {
+	dataDir := env("VPSCONTROL_DATA_DIR", "/opt/vpscontrol/data")
+
+	st, err := store.New(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ storage error: %v\n", err)
+		os.Exit(1)
+	}
+
+	u, ok := st.FindUserByUsername(username)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "✗ no user found with username %q\n", username)
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Available users:")
+		for _, other := range st.ListUsers() {
+			fmt.Fprintf(os.Stderr, "  - %s (%s)\n", other.Username, other.Role)
+		}
+		os.Exit(1)
+	}
+
+	fmt.Printf("Resetting password for %s (%s)\n", u.Username, u.Role)
+	fmt.Println("Enter a new password (min 8 characters).")
+	fmt.Println("Leave empty to generate a random one.")
+	fmt.Print("New password: ")
+
+	var newPassword string
+	fd := int(syscall.Stdin)
+	if term.IsTerminal(fd) {
+		// Mode interactif : on cache la saisie.
+		b, err := term.ReadPassword(fd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\n✗ could not read password: %v\n", err)
+			os.Exit(1)
+		}
+		newPassword = strings.TrimSpace(string(b))
+		fmt.Println()
+	} else {
+		// Mode non-interactif (pipe) : on lit une ligne.
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		newPassword = strings.TrimSpace(line)
+	}
+
+	generated := false
+	if newPassword == "" {
+		newPassword = generateRandomPassword(16)
+		generated = true
+	}
+
+	if len(newPassword) < 8 {
+		fmt.Fprintln(os.Stderr, "✗ password must be at least 8 characters long")
+		os.Exit(1)
+	}
+
+	hash, salt, err := auth.HashPassword(newPassword)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ hashing failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	u.PasswordHash = hash
+	u.Salt = salt
+
+	// UpdateUser n'existe pas dans le store — on supprime + réajoute.
+	// Plus simple : on recharge et on écrase la ligne via une méthode
+	// dédiée. Comme le store utilise une map JSON, on a besoin d'une
+	// méthode UpdateUser. On va donc utiliser DeleteUser + AddUser
+	// (avec le même ID, même username, mêmes autres champs).
+	//
+	// MAIS : DeleteUser refuse de supprimer le dernier admin.
+	// Contournement : on utilise une méthode dédiée du store.
+	if err := st.ResetUserPassword(u.ID, hash, salt); err != nil {
+		fmt.Fprintf(os.Stderr, "✗ could not save new password: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Println("✓ Password updated successfully.")
+	if generated {
+		fmt.Println()
+		fmt.Println("  ⚠  This password is shown only once. Copy it now:")
+		fmt.Println()
+		fmt.Printf("    %s\n", newPassword)
+		fmt.Println()
+	}
+	fmt.Println("  You can now log in with this new password.")
+}
+
+// =====================================================================
+// CLI : list-users
+// =====================================================================
+
+func runListUsers() {
+	dataDir := env("VPSCONTROL_DATA_DIR", "/opt/vpscontrol/data")
+
+	st, err := store.New(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ storage error: %v\n", err)
+		os.Exit(1)
+	}
+
+	users := st.ListUsers()
+	if len(users) == 0 {
+		fmt.Println("No users registered yet.")
+		return
+	}
+
+	fmt.Println("Registered users:")
+	for _, u := range users {
+		fmt.Printf("  - %-20s role=%-8s created=%s\n",
+			u.Username, u.Role, u.CreatedAt.Format("2006-01-02 15:04"))
+	}
+}
+
+// =====================================================================
+// CLI : help
+// =====================================================================
+
+func printHelp() {
+	fmt.Println(`VPS Control — command-line utilities
+
+Usage:
+  vpscontrol                       Start the panel (server mode)
+  vpscontrol reset-password <u>    Reset the password of user <u>
+  vpscontrol list-users            List all panel users
+  vpscontrol version               Print version info
+  vpscontrol help                  Show this help
+
+Environment:
+  VPSCONTROL_DATA_DIR   data directory (default: /opt/vpscontrol/data)
+
+Examples:
+  sudo vpscontrol reset-password messy
+  sudo vpscontrol list-users`)
+}
+
+// =====================================================================
+// Génération de mot de passe aléatoire
+// =====================================================================
+
+func generateRandomPassword(length int) string {
+	const charset = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*"
+	b := make([]byte, length)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
+}
+
+// =====================================================================
+// Mode serveur
+// =====================================================================
+
+func runServer() {
 	dataDir := env("VPSCONTROL_DATA_DIR", "/opt/vpscontrol/data")
 	filesRoot := env("VPSCONTROL_FILES_ROOT", "/home")
 	deployRoot := env("VPSCONTROL_DEPLOY_ROOT", "/opt/vpscontrol/apps")
@@ -201,7 +390,7 @@ func main() {
 	mux.Handle("/api/files/compress", authMw(adminMw(http.HandlerFunc(fileH.Compress))))
 
 	// =====================================================================
-	// Admin — docker services (page globale /services.html)
+	// Admin — docker services
 	// =====================================================================
 	mux.Handle("/api/services", authMw(adminMw(http.HandlerFunc(svcH.List))))
 	mux.Handle("/api/services/", authMw(adminMw(http.HandlerFunc(serviceDispatch(svcH)))))
@@ -247,7 +436,6 @@ func main() {
 		case r.Method == "POST" && strings.HasSuffix(path, "/deploy"):
 			permSettings(http.HandlerFunc(deployH.DeployDraft)).ServeHTTP(w, r)
 
-		// ---- Power actions scopées sur l'app ----
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/start"):
 			permConsole(http.HandlerFunc(deployH.PowerStart)).ServeHTTP(w, r)
 		case r.Method == "POST" && strings.HasSuffix(path, "/power/stop"):
