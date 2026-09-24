@@ -1,0 +1,87 @@
+/* VPS Control — page Server */
+
+html, body {
+  background: #0a0f1a;
+  color: #e5e7eb;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0a0f1a; }
+::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #374151; }
+
+input, select, textarea {
+  background: #0a0f1a;
+  border: 1px solid #1f2937;
+  color: #e5e7eb;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  width: 100%;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34,197,94,.12);
+}
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  padding-right: 34px;
+}
+textarea {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12.5px;
+  min-height: 90px;
+  resize: vertical;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  color: #22c55e;
+  background: #0a0f1a;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.console-output {
+  background: #06090d;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.console-line {
+  display: flex;
+  gap: 8px;
+  line-height: 1.55;
+  align-items: flex-start;
+}
+.console-tag { color: #6baa8a; flex-shrink: 0; }
+.console-line.error-line { color: #ff8a80; }
+.console-line.cmd .console-tag { color: #4ade80; font-weight: bold; }
+.console-line .edit-btn { opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+.console-line:hover .edit-btn { opacity: 1; }
+
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.field-help { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
+.field-help code { padding: 1px 5px; font-size: 10.5px; }
+
+.info-banner {
+  background: rgba(34,197,94,.08);
+  border: 1px solid rgba(34,197,94,.3);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #86efac;
+}
+.info-banner i { color: #22c55e; margin-top: 2px; }
