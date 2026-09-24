@@ -27,7 +27,6 @@ type DeployHandlers struct {
 
 var appNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,40}$`)
 
-// Versions supportées
 var allowedNodeVersions = map[string]bool{
 	"20": true,
 	"21": true,
@@ -38,7 +37,6 @@ var allowedNodeVersions = map[string]bool{
 var allowedPythonVersions = map[string]bool{"3.10": true, "3.11": true, "3.12": true, "3.13": true}
 var allowedPHPVersions = map[string]bool{"8.1": true, "8.2": true, "8.3": true, "8.4": true}
 
-// Limite d'upload pour les ZIP (30 MB).
 const maxUploadSize = 30 * 1024 * 1024
 
 func normalizeNodeVersion(v string) string {
@@ -260,8 +258,83 @@ func resolveSubdirInput(input string) (string, error) {
 }
 
 // =====================================================================
-// Dockerfiles (classiques — le code est COPIÉ dans l'image)
+// Dockerfiles — modèle Wings
+//
+// Aucun COPY. Le code est monté en volume depuis l'hôte.
+// Le CMD installe les dépendances au premier démarrage si nécessaire,
+// puis lance l'app. Le résultat de l'install (node_modules, etc.) est
+// écrit dans le volume → visible dans le panel.
 // =====================================================================
+
+func dockerfileNode(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+# Install au premier démarrage si node_modules n'existe pas encore,
+# puis lance l'app. Le code vient du volume monté à /app.
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install --omit=dev || npm install; fi && npm start"]
+`, nodeVersion, port, port)
+}
+
+func dockerfileNext(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install; fi && if [ ! -d .next ]; then npm run build; fi && npm start"]
+`, nodeVersion, port, port)
+}
+
+func dockerfileNuxt(nodeVersion, port string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=%s
+EXPOSE %s
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install; fi && if [ ! -d .output ]; then npm run build; fi && node .output/server/index.mjs"]
+`, nodeVersion, port, port)
+}
+
+func dockerfileReact(nodeVersion, buildDir string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apk add --no-cache nginx
+# Build le SPA au premier démarrage si nécessaire, puis sert via Nginx.
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install; fi && if [ ! -d %s ]; then npm run build; fi && cp -r %s/* /usr/share/nginx/html/ && nginx -g 'daemon off;'"]
+`, nodeVersion, buildDir, buildDir)
+}
+
+func dockerfileAstro(nodeVersion string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apk add --no-cache nginx
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install; fi && if [ ! -d dist ]; then npm run build; fi && cp -r dist/* /usr/share/nginx/html/ && nginx -g 'daemon off;'"]
+`, nodeVersion)
+}
+
+func dockerfileSvelteKit(nodeVersion string) string {
+	return fmt.Sprintf(`FROM node:%s-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apk add --no-cache nginx
+CMD ["sh", "-c", "if [ ! -d node_modules ]; then npm install; fi && if [ ! -d build ]; then npm run build; fi && cp -r build/* /usr/share/nginx/html/ && nginx -g 'daemon off;'"]
+`, nodeVersion)
+}
+
+func dockerfilePython(pythonVersion, port string) string {
+	return fmt.Sprintf(`FROM python:%s-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+ENV PORT=%s
+EXPOSE %s
+CMD ["sh", "-c", "if [ -f requirements.txt ] && [ ! -d .venv-installed ]; then pip install --no-cache-dir -r requirements.txt && touch .venv-installed; fi && python app.py"]
+`, pythonVersion, port, port)
+}
 
 func dockerfileLaravelPHP(phpVersion string) string {
 	return fmt.Sprintf(`FROM php:%s-apache
@@ -272,157 +345,30 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
-COPY . .
-RUN composer install --no-dev --optimize-autoloader || true
-RUN chown -R www-data:www-data /var/www/html \
- && chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache 2>/dev/null || true
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
  && sed -ri 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 EXPOSE 80
+CMD ["sh", "-c", "if [ -f composer.json ] && [ ! -d vendor ]; then composer install --no-dev --optimize-autoloader || true; fi && apache2-foreground"]
 `, phpVersion)
 }
 
-func dockerfileNode(nodeVersion, port string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine
+func dockerfileGo(port string) string {
+	return fmt.Sprintf(`FROM golang:1.22-alpine
 WORKDIR /app
-COPY package*.json ./
-RUN npm install --omit=dev || npm install --production
-COPY . .
-ENV NODE_ENV=production
 ENV PORT=%s
 EXPOSE %s
-CMD ["npm", "start"]
-`, nodeVersion, port, port)
-}
-
-func dockerfilePython(pythonVersion, port string) string {
-	return fmt.Sprintf(`FROM python:%s-slim
-WORKDIR /app
-COPY requirements.txt* ./
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-COPY . .
-ENV PORT=%s
-ENV PYTHONUNBUFFERED=1
-EXPOSE %s
-CMD ["python", "app.py"]
-`, pythonVersion, port, port)
+CMD ["sh", "-c", "if [ ! -f server ]; then go build -o server . ; fi && ./server"]
+`, port, port)
 }
 
 func dockerfileStatic() string {
 	return `FROM nginx:alpine
-COPY . /usr/share/nginx/html
+WORKDIR /usr/share/nginx/html
 EXPOSE 80
+# Nginx lit directement les fichiers du volume monté.
+# Pas de COPY, pas de build.
 `
-}
-
-func dockerfileGo(port string) string {
-	return fmt.Sprintf(`FROM golang:1.22-alpine AS build
-WORKDIR /src
-COPY go.* ./
-RUN go mod download || true
-COPY . .
-RUN CGO_ENABLED=0 go build -o /out/server . || go build -o /out/server *.go
-
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-COPY --from=build /out/server /app/server
-ENV PORT=%s
-EXPOSE %s
-CMD ["/app/server"]
-`, port, port)
-}
-
-func dockerfileReact(nodeVersion, buildDir string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-FROM nginx:alpine
-COPY --from=build /app/%s /usr/share/nginx/html
-RUN printf 'server {\n\
-  listen 80;\n\
-  root /usr/share/nginx/html;\n\
-  index index.html;\n\
-  location / {\n\
-    try_files $uri $uri/ /index.html;\n\
-  }\n}\n' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
-`, nodeVersion, buildDir)
-}
-
-func dockerfileNext(nodeVersion, port string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-ENV NODE_ENV=production
-ENV PORT=%s
-EXPOSE %s
-CMD ["npm", "start"]
-`, nodeVersion, port, port)
-}
-
-func dockerfileAstro(nodeVersion string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-RUN printf 'server {\n\
-  listen 80;\n\
-  root /usr/share/nginx/html;\n\
-  index index.html;\n\
-  location / {\n\
-    try_files $uri $uri/ /index.html;\n\
-  }\n}\n' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
-`, nodeVersion)
-}
-
-func dockerfileSvelteKit(nodeVersion string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-FROM nginx:alpine
-COPY --from=build /app/build /usr/share/nginx/html
-RUN printf 'server {\n\
-  listen 80;\n\
-  root /usr/share/nginx/html;\n\
-  index index.html;\n\
-  location / {\n\
-    try_files $uri $uri/ /index.html;\n\
-  }\n}\n' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
-`, nodeVersion)
-}
-
-func dockerfileNuxt(nodeVersion, port string) string {
-	return fmt.Sprintf(`FROM node:%s-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-ENV NODE_ENV=production
-ENV PORT=%s
-EXPOSE %s
-CMD ["node", ".output/server/index.mjs"]
-`, nodeVersion, port, port)
 }
 
 // =====================================================================
@@ -551,8 +497,6 @@ type buildOptions struct {
 	InternalPort  string
 }
 
-// writeDockerfile écrit TOUJOURS un nouveau Dockerfile, écrasant
-// l'existant s'il y en a un.
 func writeDockerfile(dir string, opts buildOptions) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	internal := opts.InternalPort
@@ -585,9 +529,6 @@ func writeDockerfile(dir string, opts buildOptions) error {
 	return os.WriteFile(dockerfilePath, []byte(content), 0o644)
 }
 
-// writeDockerfileIfMissing écrit un Dockerfile seulement s'il n'existe
-// pas déjà. Utilisé aux premiers déploiements pour respecter un
-// Dockerfile fourni par l'utilisateur.
 func writeDockerfileIfMissing(dir string, opts buildOptions) error {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
@@ -1236,7 +1177,7 @@ func (h *DeployHandlers) Redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("build failed:\n" + out)
@@ -1423,7 +1364,7 @@ func (h *DeployHandlers) UpdateSettings(w http.ResponseWriter, r *http.Request) 
 	}
 
 	imageTag := "vpscontrol-" + dep.Name
-	out, err := runCommand(5*time.Minute, "docker", "build", "--no-cache", "-t", imageTag, effDir)
+	out, err := runCommand(5*time.Minute, "docker", "build", "-t", imageTag, effDir)
 	if err != nil {
 		dep.Status = "error"
 		dep.LastError = truncateError("docker build failed:\n" + out)
