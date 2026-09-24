@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -160,20 +161,23 @@ func (h *AllocationHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 // buildRunArgs — construit les arguments `docker run`
 // =====================================================================
-
-// buildRunArgs construit les arguments `docker run` en tenant compte des
-// limites de ressources, des allocations multiples, et du mode volume.
 //
-// Le mode volume (Wings-like) monte le dossier de l'app sur l'hôte dans
-// le conteneur, ce qui permet à l'utilisateur de modifier un fichier dans
-// le panel puis de cliquer sur Restart pour appliquer le changement —
-// sans rebuild.
+// IMPORTANT : on ne monte JAMAIS le dossier entier de l'app dans /app.
+// Cela écraserait le code de l'image (package.json, node_modules, etc.)
+// et provoquerait l'erreur ENOENT /app/package.json.
 //
-// Le montage est conditionnel :
-//   - Les stacks avec build step (React, Next, Vite, Astro, SvelteKit, Nuxt)
-//     NE sont PAS montés en volume : leur code doit être re-buildé.
-//   - Les stacks sans build (Node générique sans scripts.build, Python, Go,
-//     Laravel, Static) SONT montés en volume : code modifiable à chaud.
+// À la place, on monte UNIQUEMENT les sous-dossiers de données S'ILS
+// EXISTENT sur l'hôte :
+//   - uploads/
+//   - storage/
+//   - data/
+//   - logs/
+//   - public/uploads/
+//   - public/storage/
+//
+// Ces dossiers sont ceux que les apps écrivent au runtime (fichiers
+// uploadés par les users, cache, logs applicatifs). Ils persistent entre
+// les redémarrages et sont visibles dans l'onglet Files.
 func buildRunArgs(dep store.Deployment, internalPort string) []string {
 	args := []string{"run", "-d", "--name", dep.Container, "--restart", "unless-stopped"}
 
@@ -202,15 +206,29 @@ func buildRunArgs(dep store.Deployment, internalPort string) []string {
 		args = append(args, "-e", v.Key+"="+v.Value)
 	}
 
-	// Mode volume : monter le dossier de l'app dans le conteneur.
-	// Conditionnel selon le stack (voir needsVolumeMount).
-	if needsVolumeMount(dep) {
-		workdir := containerWorkdir(dep)
-		args = append(args, "-v", dep.Path+":"+workdir)
+	// ---- Dossiers de données (volume ciblé, jamais tout /app) ----
+	appDir := appRoot(dep)
+	workdir := containerWorkdir(dep)
+	dataFolders := []string{
+		"uploads",
+		"storage",
+		"data",
+		"logs",
+		"public/uploads",
+		"public/storage",
+	}
+	for _, sub := range dataFolders {
+		hostPath := filepath.Join(appDir, sub)
+		if _, err := os.Stat(hostPath); err == nil {
+			containerPath := filepath.Join(workdir, sub)
+			// Si le sous-dossier parent n'existe pas dans le conteneur,
+			// Docker le crée automatiquement (comportement par défaut).
+			args = append(args, "-v", hostPath+":"+containerPath)
+		}
 	}
 
 	// .env : uniquement s'il existe réellement (dans le dossier de l'app)
-	envFile := appRoot(dep) + "/.env"
+	envFile := appDir + "/.env"
 	if _, err := os.Stat(envFile); err == nil {
 		args = append(args, "--env-file", envFile)
 	}
@@ -220,50 +238,7 @@ func buildRunArgs(dep store.Deployment, internalPort string) []string {
 	return args
 }
 
-// needsVolumeMount décide si le code de cette app doit être monté en
-// volume dans le conteneur.
-//
-// Règle :
-//   - React / Next / Vite / Astro / SvelteKit / Nuxt → NON (build step)
-//   - Node générique → OUI seulement s'il n'y a pas de scripts.build
-//   - Python / Go / Laravel / Static → OUI
-//
-// Le but : si l'app a un step de build (npm run build), on ne peut PAS
-// monter le code source en volume, car le build doit tourner DANS l'image
-// au moment du docker build.
-func needsVolumeMount(dep store.Deployment) bool {
-	switch dep.Stack {
-	case "react", "next", "astro", "sveltekit", "nuxt":
-		return false // build step obligatoire
-	case "node":
-		// Node générique : monter en volume seulement s'il n'y a pas de
-		// step de build. Sinon c'est en réalité une app avec build.
-		return !nodeHasBuildScript(appRoot(dep))
-	case "python", "go", "laravel", "static":
-		return true
-	default:
-		return false
-	}
-}
-
-// nodeHasBuildScript vérifie si package.json contient un script "build".
-// Si oui, on doit garder le mode classique (build dans l'image).
-func nodeHasBuildScript(dir string) bool {
-	b, err := os.ReadFile(dir + "/package.json")
-	if err != nil {
-		return false
-	}
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal(b, &pkg); err != nil {
-		return false
-	}
-	_, ok := pkg.Scripts["build"]
-	return ok
-}
-
-// containerWorkdir retourne le chemin de montage dans le conteneur
+// containerWorkdir retourne le chemin de travail dans le conteneur
 // selon la stack de l'app.
 //
 // Pour Node/Python/Go : /app (standard)
