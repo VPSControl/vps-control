@@ -13,21 +13,17 @@ import (
 // =====================================================================
 // Power actions scopées sur une app.
 //
-// Ces handlers sont utilisés par /api/deployments/{id}/power/{action} :
-// l'utilisateur agit sur SON conteneur (récupéré depuis le contexte
-// après vérification d'accès via RequireDeploymentAccess), jamais sur un
-// conteneur arbitraire — contrairement à ServiceHandlers qui accepte
-// n'importe quel nom (réservé aux admins sur la page /services.html).
+// Le code est dans l'image (immuable après build). Un simple Restart ne
+// reflète PAS les modifications de code — il faut un Reinstall.
 //
-// Modèle hybride (Wings-like) :
 //   - Start     → démarre le conteneur. S'il n'existe pas, build + run.
 //   - Restart   → INTELLIGENT : rebuild automatique si le stack a un
 //                 step de build (React, Next, Vite, Astro, SvelteKit,
-//                 Nuxt). Sinon, simple docker restart (rapide).
+//                 Nuxt) OU si Node a un script build. Sinon, restart.
 //   - Stop      → docker stop.
 //   - Kill      → docker kill.
-//   - Reinstall → rebuild forcé + recréation du conteneur. Utile pour
-//                 les changements de dépendances (package.json modifié).
+//   - Reinstall → rebuild forcé + recréation. À utiliser après toute
+//                 modification de code.
 // =====================================================================
 
 func (h *DeployHandlers) PowerStart(w http.ResponseWriter, r *http.Request) {
@@ -74,8 +70,6 @@ func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, act
 	case "kill":
 		h.doKill(w, dep)
 	case "restart":
-		// Restart intelligent : si le stack nécessite un build, on
-		// enchaîne sur un reinstall. Sinon, simple restart.
 		if stackNeedsRebuildOnRestart(dep) {
 			h.doReinstall(w, dep, "restart (auto-rebuild)")
 		} else {
@@ -88,17 +82,12 @@ func (h *DeployHandlers) powerAction(w http.ResponseWriter, r *http.Request, act
 	}
 }
 
-// =====================================================================
-// Start — démarre un conteneur. Si absent, build + run.
-// =====================================================================
-
 func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
 	statusOut, _ := runCommand(5*time.Second, "docker", "inspect",
 		"--format", "{{.State.Status}}", dep.Container)
 	status := strings.TrimSpace(statusOut)
 
 	if status == "" {
-		// Le conteneur n'existe pas — on lance un déploiement complet.
 		h.doReinstall(w, dep, "start (initial build)")
 		return
 	}
@@ -129,10 +118,6 @@ func (h *DeployHandlers) doStart(w http.ResponseWriter, dep store.Deployment) {
 	})
 }
 
-// =====================================================================
-// Stop
-// =====================================================================
-
 func (h *DeployHandlers) doStop(w http.ResponseWriter, dep store.Deployment) {
 	out, err := runCommand(30*time.Second, "docker", "stop", dep.Container)
 	if err != nil {
@@ -150,10 +135,6 @@ func (h *DeployHandlers) doStop(w http.ResponseWriter, dep store.Deployment) {
 	})
 }
 
-// =====================================================================
-// Kill
-// =====================================================================
-
 func (h *DeployHandlers) doKill(w http.ResponseWriter, dep store.Deployment) {
 	out, err := runCommand(30*time.Second, "docker", "kill", dep.Container)
 	if err != nil {
@@ -170,10 +151,6 @@ func (h *DeployHandlers) doKill(w http.ResponseWriter, dep store.Deployment) {
 		"output": out,
 	})
 }
-
-// =====================================================================
-// Simple restart — docker restart (rapide, ne rebuild pas)
-// =====================================================================
 
 func (h *DeployHandlers) doSimpleRestart(w http.ResponseWriter, dep store.Deployment) {
 	out, err := runCommand(45*time.Second, "docker", "restart", dep.Container)
@@ -195,10 +172,6 @@ func (h *DeployHandlers) doSimpleRestart(w http.ResponseWriter, dep store.Deploy
 	})
 }
 
-// =====================================================================
-// Reinstall — rebuild complet + recréation du conteneur
-// =====================================================================
-
 func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment, trigger string) {
 	if dep.AppSubdir == "" {
 		dep.AppSubdir = findAppRoot(dep.Path)
@@ -209,8 +182,6 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 		return
 	}
 
-	// Redétecter le stack (au cas où l'utilisateur a ajouté un fichier
-	// de config framework depuis le dernier build)
 	stack := detectStack(effDir)
 	if stack != "" && stack != "auto" {
 		dep.Stack = stack
@@ -275,16 +246,6 @@ func (h *DeployHandlers) doReinstall(w http.ResponseWriter, dep store.Deployment
 	})
 }
 
-// =====================================================================
-// Décision : faut-il rebuild au restart ?
-// =====================================================================
-
-// stackNeedsRebuildOnRestart retourne true si le stack transforme le code
-// au build (React, Next, Vite, Astro, SvelteKit, Nuxt), et donc qu'un
-// simple docker restart ne suffit pas à appliquer les modifications.
-//
-// Pour Node générique, on regarde aussi si package.json contient un
-// script "build" — s'il y en a un, c'est équivalent à un build step.
 func stackNeedsRebuildOnRestart(dep store.Deployment) bool {
 	switch dep.Stack {
 	case "react", "next", "astro", "sveltekit", "nuxt":
