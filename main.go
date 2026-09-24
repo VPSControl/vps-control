@@ -96,7 +96,6 @@ func runResetPassword(username string) {
 	var newPassword string
 	fd := int(syscall.Stdin)
 	if term.IsTerminal(fd) {
-		// Mode interactif : on cache la saisie.
 		b, err := term.ReadPassword(fd)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n✗ could not read password: %v\n", err)
@@ -105,7 +104,6 @@ func runResetPassword(username string) {
 		newPassword = strings.TrimSpace(string(b))
 		fmt.Println()
 	} else {
-		// Mode non-interactif (pipe) : on lit une ligne.
 		reader := bufio.NewReader(os.Stdin)
 		line, _ := reader.ReadString('\n')
 		newPassword = strings.TrimSpace(line)
@@ -128,17 +126,6 @@ func runResetPassword(username string) {
 		os.Exit(1)
 	}
 
-	u.PasswordHash = hash
-	u.Salt = salt
-
-	// UpdateUser n'existe pas dans le store — on supprime + réajoute.
-	// Plus simple : on recharge et on écrase la ligne via une méthode
-	// dédiée. Comme le store utilise une map JSON, on a besoin d'une
-	// méthode UpdateUser. On va donc utiliser DeleteUser + AddUser
-	// (avec le même ID, même username, mêmes autres champs).
-	//
-	// MAIS : DeleteUser refuse de supprimer le dernier admin.
-	// Contournement : on utilise une méthode dédiée du store.
 	if err := st.ResetUserPassword(u.ID, hash, salt); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ could not save new password: %v\n", err)
 		os.Exit(1)
@@ -253,6 +240,7 @@ func runServer() {
 
 	// ---- Handlers ----
 	authH := &handlers.AuthHandlers{Store: st, Secret: secret}
+	profileH := &handlers.ProfileHandlers{Store: st}
 	userH := &handlers.UserHandlers{Store: st}
 	fileH := &handlers.FileHandlers{Root: filesRoot}
 	svcH := &handlers.ServiceHandlers{}
@@ -309,11 +297,12 @@ func runServer() {
 	permFilesWrite := middleware.RequirePermission("files.write")
 
 	// =====================================================================
-	// Auth
+	// Auth + Profile
 	// =====================================================================
 	mux.Handle("/api/logout", authMw(http.HandlerFunc(authH.Logout)))
 	mux.Handle("/api/me", authMw(http.HandlerFunc(authH.Me)))
 	mux.Handle("/api/invite/", authMw(http.HandlerFunc(subH.AcceptInvite)))
+	mux.Handle("/api/profile", authMw(methodGuard("PUT", profileH.Update)))
 
 	// =====================================================================
 	// API tokens
