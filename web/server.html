@@ -48,6 +48,8 @@ tailwind.config = {
   .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
   .field-help { font-size: 11px; color: #6b7280; margin-top: 4px; line-height: 1.45; }
   .field-help code { padding: 1px 5px; font-size: 10.5px; }
+  .info-banner { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.3); border-radius: 10px; padding: 12px 16px; display: flex; gap: 10px; align-items: flex-start; margin-bottom: 16px; font-size: 13px; color: #86efac; }
+  .info-banner i { color: #22c55e; margin-top: 2px; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -207,6 +209,16 @@ tailwind.config = {
 
     <!-- ===== FILES ===== -->
     <section id="tab-files" class="tab-content hidden">
+      <div class="info-banner">
+        <i class="fas fa-lightbulb"></i>
+        <div>
+          <strong>How to apply your changes:</strong>
+          For <strong>Node.js (no build), Python, Go, Laravel, Static</strong> → edit a file, click <strong>Restart</strong> in the Console.<br>
+          For <strong>React, Next.js, Vite, Astro, SvelteKit, Nuxt</strong> → edit a file, click <strong>Restart</strong> (the panel rebuilds automatically).<br>
+          Need to change <code>package.json</code> or add a dependency? Use <strong>Settings → Advanced → Reinstall</strong>.
+        </div>
+      </div>
+
       <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div id="files-breadcrumb" class="text-xs mono text-gray-500"></div>
         <div class="flex flex-wrap gap-2">
@@ -427,6 +439,7 @@ tailwind.config = {
               <option value="sveltekit">SvelteKit</option>
               <option value="nuxt">Nuxt</option>
               <option value="python">Python</option>
+              <option value="go">Go</option>
               <option value="laravel">Laravel / PHP</option>
               <option value="static">Static</option>
             </select>
@@ -446,10 +459,13 @@ tailwind.config = {
           <div class="version-row version-node">
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Node.js version</label>
             <select id="set-node-version">
-              <option value="18">Node 18</option>
               <option value="20">Node 20 (LTS)</option>
-              <option value="22">Node 22</option>
+              <option value="21">Node 21</option>
+              <option value="22" selected>Node 22 (LTS)</option>
+              <option value="23">Node 23</option>
+              <option value="24">Node 24 (LTS)</option>
             </select>
+            <p class="field-help">Changing this rebuilds the image (30s–3min). Node 22 and 24 are LTS.</p>
           </div>
           <div class="version-row version-python hidden">
             <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Python version</label>
@@ -457,6 +473,7 @@ tailwind.config = {
               <option value="3.10">Python 3.10</option>
               <option value="3.11">Python 3.11</option>
               <option value="3.12">Python 3.12</option>
+              <option value="3.13">Python 3.13</option>
             </select>
           </div>
           <div class="version-row version-php hidden">
@@ -465,6 +482,7 @@ tailwind.config = {
               <option value="8.1">PHP 8.1</option>
               <option value="8.2">PHP 8.2</option>
               <option value="8.3">PHP 8.3</option>
+              <option value="8.4">PHP 8.4</option>
             </select>
           </div>
           <div>
@@ -476,9 +494,33 @@ tailwind.config = {
             <input id="set-internal-port" placeholder="3000">
           </div>
         </div>
-        <button id="btn-save-settings" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition"><i class="fas fa-arrows-rotate mr-2"></i>Save & Redeploy</button>
+        <button id="btn-save-settings" class="mt-5 px-4 py-2.5 rounded-lg bg-accent hover:bg-accentDark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-arrows-rotate mr-2"></i>Save & Redeploy
+        </button>
         <p id="settings-status" class="text-xs text-gray-500 mt-3"></p>
       </div>
+
+      <!-- ===== ADVANCED (Reinstall) ===== -->
+      <div class="bg-panel border border-amber/30 rounded-xl p-5 max-w-2xl mb-4">
+        <h3 class="font-semibold text-white mb-3 flex items-center gap-2">
+          <i class="fas fa-wrench text-amber"></i>Advanced
+        </h3>
+        <p class="text-xs text-gray-400 mb-4 leading-relaxed">
+          <strong class="text-white">Reinstall</strong> forces a full rebuild of the Docker image and recreates the container.
+          Use this when you:
+        </p>
+        <ul class="text-xs text-gray-400 mb-4 ml-4 list-disc space-y-1">
+          <li>Changed <code>package.json</code> / <code>requirements.txt</code> / <code>composer.json</code> (added a dependency)</li>
+          <li>Modified a file on an app that has a build step (React, Next, Vite, Astro…)</li>
+          <li>Want to be 100% sure the container uses the latest code</li>
+        </ul>
+        <button id="btn-reinstall" class="px-4 py-2.5 rounded-lg bg-amber hover:bg-amber-dark text-slate-900 font-semibold text-sm transition">
+          <i class="fas fa-hammer mr-2"></i>Reinstall
+        </button>
+        <p id="reinstall-status" class="text-xs text-gray-500 mt-3"></p>
+      </div>
+
+      <!-- ===== DANGER ZONE ===== -->
       <div class="bg-panel border border-danger/30 rounded-xl p-5 max-w-2xl">
         <h3 class="font-semibold text-danger mb-3 flex items-center gap-2"><i class="fas fa-triangle-exclamation"></i>Danger zone</h3>
         <button id="btn-delete-app" class="px-3 py-2 rounded-lg bg-panel2 border border-danger/40 text-danger hover:bg-danger/10 text-xs font-medium transition">
@@ -691,7 +733,7 @@ appOverlay?.addEventListener('click', () => {
   appOverlay.classList.add('hidden');
 });
 
-// ============ NAV PRINCIPALE ============
+// ============ NAV ============
 function buildNav(active, isAdmin) {
   const items = [
     { href: '/dashboard.html', icon: 'fa-gauge-high', label: 'Dashboard', id: 'dashboard' },
@@ -979,18 +1021,32 @@ function appendConsoleLine(tag, text, cls = '', parsedErrors = null) {
   if (consoleAutoScroll) out.scrollTop = out.scrollHeight;
 }
 
-// ---- Power buttons : appels scopés sur l'app ----
+// Power buttons
 document.querySelectorAll('[data-power]').forEach(btn => {
   btn.addEventListener('click', async () => {
     if (!currentApp) return;
     const action = btn.dataset.power;
     appendConsoleLine(CONSOLE_TAG, `Sending "${action}" to container...`, 'muted');
+    btn.disabled = true;
+    const oldHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + action.charAt(0).toUpperCase() + action.slice(1);
     try {
-      await api(`/api/deployments/${appId}/power/${action}`, { method: 'POST' });
+      const res = await api(`/api/deployments/${appId}/power/${action}`, { method: 'POST' });
+      if (res.mode === 'fast') {
+        appendConsoleLine(CONSOLE_TAG, `Restart fast — code NOT rebuilt.`, 'muted');
+      } else if (res.trigger) {
+        appendConsoleLine(CONSOLE_TAG, `Rebuilt via "${res.trigger}" (stack: ${res.stack || 'unknown'}).`, 'muted');
+      }
       toast(`Container ${action} done`);
       hideErrorBanner();
       setTimeout(initConsole, 800);
-    } catch (err) { toast(err.message, true); appendConsoleLine('[error]', err.message, 'muted'); }
+    } catch (err) {
+      toast(err.message, true);
+      appendConsoleLine('[error]', err.message, 'muted');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldHTML;
+    }
   });
 });
 
@@ -1661,7 +1717,7 @@ document.getElementById('btn-confirm-schedule').addEventListener('click', async 
 function loadAppSettings() {
   document.getElementById('set-stack').value = currentApp.stack === 'auto' ? 'node' : (currentApp.stack || 'node');
   document.getElementById('set-app-subdir').value = currentApp.appSubdir || '';
-  document.getElementById('set-node-version').value = currentApp.nodeVersion || '20';
+  document.getElementById('set-node-version').value = currentApp.nodeVersion || '22';
   document.getElementById('set-python-version').value = currentApp.pythonVersion || '3.12';
   document.getElementById('set-php-version').value = currentApp.phpVersion || '8.3';
   document.getElementById('set-host-port').value = currentApp.port || '';
@@ -1711,32 +1767,121 @@ document.getElementById('btn-detect-subdir').addEventListener('click', async () 
   }
 });
 
+// ============ SAVE & REDEPLOY (fix: attend la réponse réelle) ============
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
   if (!currentApp) return;
+
   const status = document.getElementById('settings-status');
-  status.textContent = 'Saving and rebuilding... this can take a minute or two.';
+  const btn = document.getElementById('btn-save-settings');
+
+  // État visuel : on désactive le bouton et on affiche une progression.
+  btn.disabled = true;
+  const oldHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving & rebuilding...';
+
+  const stack = document.getElementById('set-stack').value;
+  const nodeVersion = document.getElementById('set-node-version').value;
+  const pythonVersion = document.getElementById('set-python-version').value;
+  const phpVersion = document.getElementById('set-php-version').value;
+  const hostPort = document.getElementById('set-host-port').value;
+  const internalPort = document.getElementById('set-internal-port').value;
+  const appSubdir = document.getElementById('set-app-subdir').value.trim();
+
+  // Construire un message de progression précis
+  let progressMsg = 'Saving and rebuilding... this can take 30s to 3min.';
+  if (stack === 'node' || stack === 'react' || stack === 'next' || stack === 'astro' || stack === 'sveltekit' || stack === 'nuxt') {
+    progressMsg = `Rebuilding with Node ${nodeVersion}... this can take 30s to 3min.`;
+  } else if (stack === 'python') {
+    progressMsg = `Rebuilding with Python ${pythonVersion}...`;
+  } else if (stack === 'laravel') {
+    progressMsg = `Rebuilding with PHP ${phpVersion}...`;
+  }
+  status.textContent = progressMsg;
+  status.className = 'text-xs text-accent mt-3';
+
   const payload = {
-    stack: document.getElementById('set-stack').value,
-    appSubdir: document.getElementById('set-app-subdir').value.trim(),
-    nodeVersion: document.getElementById('set-node-version').value,
-    pythonVersion: document.getElementById('set-python-version').value,
-    phpVersion: document.getElementById('set-php-version').value,
-    hostPort: document.getElementById('set-host-port').value,
-    internalPort: document.getElementById('set-internal-port').value,
+    stack,
+    appSubdir,
+    nodeVersion,
+    pythonVersion,
+    phpVersion,
+    hostPort,
+    internalPort,
   };
+
   try {
-    const res = await api(`/api/deployments/${currentApp.id}/settings`, { method: 'PUT', body: JSON.stringify(payload) });
-    if (res.changed === false) { status.textContent = 'No changes.'; toast('No changes'); return; }
-    status.textContent = 'Settings applied. Reloading...';
-    toast('Settings updated');
-    setTimeout(() => location.reload(), 1200);
+    // ATTENTE RÉELLE : on ne recharge PAS avant d'avoir la réponse HTTP.
+    const res = await api(`/api/deployments/${currentApp.id}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+
+    if (res.changed === false) {
+      status.textContent = 'No changes detected.';
+      status.className = 'text-xs text-gray-500 mt-3';
+      toast('No changes');
+      return;
+    }
+
+    // Succès réel
+    status.textContent = 'Rebuilt successfully. Reloading...';
+    status.className = 'text-xs text-accent mt-3';
+
+    let successMsg = 'Settings updated';
+    if (stack === 'node' || stack === 'react' || stack === 'next' || stack === 'astro' || stack === 'sveltekit' || stack === 'nuxt') {
+      successMsg = `Rebuilt with Node ${nodeVersion}`;
+    } else if (stack === 'python') {
+      successMsg = `Rebuilt with Python ${pythonVersion}`;
+    } else if (stack === 'laravel') {
+      successMsg = `Rebuilt with PHP ${phpVersion}`;
+    }
+    toast(successMsg);
+
+    // Maintenant on peut recharger, en toute sécurité
+    setTimeout(() => location.reload(), 600);
   } catch (err) {
+    // En cas d'erreur, on affiche le message exact renvoyé par le serveur
     status.textContent = 'Error: ' + err.message;
+    status.className = 'text-xs text-danger mt-3';
     showErrorBanner(err.message);
     toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldHTML;
   }
 });
 
+// ============ REINSTALL ============
+document.getElementById('btn-reinstall').addEventListener('click', async () => {
+  if (!currentApp) return;
+  if (!confirm('Rebuild the Docker image and recreate the container?\n\nUse this when you changed package.json or a build-step file. It takes 30s-3min.')) return;
+
+  const btn = document.getElementById('btn-reinstall');
+  const status = document.getElementById('reinstall-status');
+  btn.disabled = true;
+  const oldHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Reinstalling...';
+  status.textContent = 'Rebuilding image and recreating container...';
+  status.className = 'text-xs text-accent mt-3';
+
+  try {
+    const res = await api(`/api/deployments/${appId}/power/reinstall`, { method: 'POST' });
+    status.textContent = 'Reinstalled successfully.';
+    status.className = 'text-xs text-accent mt-3';
+    toast(res.message || 'Reinstall complete');
+    setTimeout(() => location.reload(), 800);
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    status.className = 'text-xs text-danger mt-3';
+    showErrorBanner(err.message);
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldHTML;
+  }
+});
+
+// ============ DELETE APP ============
 document.getElementById('btn-delete-app').addEventListener('click', async () => {
   if (!confirm(`Delete "${currentApp.name}"?`)) return;
   const removeFiles = confirm('Also delete the files from disk?');
