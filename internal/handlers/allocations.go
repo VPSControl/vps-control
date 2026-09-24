@@ -159,25 +159,16 @@ func (h *AllocationHandlers) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
-// buildRunArgs — construit les arguments `docker run`
+// buildRunArgs — modèle Wings
+//
+// On monte TOUT le dossier de l'app dans /app. Le code et les données
+// vivent sur l'hôte. Résultat : node_modules, uploads, cache, tout est
+// visible dans le panel et modifiable à chaud.
+//
+// L'image Docker ne contient QUE l'environnement (Node, Python, etc.).
+// Le CMD du Dockerfile installe les dépendances au premier démarrage.
 // =====================================================================
-//
-// IMPORTANT : on ne monte JAMAIS le dossier entier de l'app dans /app.
-// Cela écraserait le code de l'image (package.json, node_modules, etc.)
-// et provoquerait l'erreur ENOENT /app/package.json.
-//
-// À la place, on monte UNIQUEMENT les sous-dossiers de données S'ILS
-// EXISTENT sur l'hôte :
-//   - uploads/
-//   - storage/
-//   - data/
-//   - logs/
-//   - public/uploads/
-//   - public/storage/
-//
-// Ces dossiers sont ceux que les apps écrivent au runtime (fichiers
-// uploadés par les users, cache, logs applicatifs). Ils persistent entre
-// les redémarrages et sont visibles dans l'onglet Files.
+
 func buildRunArgs(dep store.Deployment, internalPort string) []string {
 	args := []string{"run", "-d", "--name", dep.Container, "--restart", "unless-stopped"}
 
@@ -201,34 +192,18 @@ func buildRunArgs(dep store.Deployment, internalPort string) []string {
 		args = append(args, "-p", a.Port+":"+internalPort)
 	}
 
-	// Variables d'environnement individuelles
+	// Variables d'environnement
 	for _, v := range dep.EnvVars {
 		args = append(args, "-e", v.Key+"="+v.Value)
 	}
 
-	// ---- Dossiers de données (volume ciblé, jamais tout /app) ----
-	appDir := appRoot(dep)
+	// ---- Modèle Wings : monter TOUT le dossier de l'app ----
+	// Le chemin dans le conteneur dépend du stack.
 	workdir := containerWorkdir(dep)
-	dataFolders := []string{
-		"uploads",
-		"storage",
-		"data",
-		"logs",
-		"public/uploads",
-		"public/storage",
-	}
-	for _, sub := range dataFolders {
-		hostPath := filepath.Join(appDir, sub)
-		if _, err := os.Stat(hostPath); err == nil {
-			containerPath := filepath.Join(workdir, sub)
-			// Si le sous-dossier parent n'existe pas dans le conteneur,
-			// Docker le crée automatiquement (comportement par défaut).
-			args = append(args, "-v", hostPath+":"+containerPath)
-		}
-	}
+	args = append(args, "-v", appRoot(dep)+":"+workdir)
 
-	// .env : uniquement s'il existe réellement (dans le dossier de l'app)
-	envFile := appDir + "/.env"
+	// .env : si présent sur l'hôte, on le charge aussi (en plus du volume)
+	envFile := appRoot(dep) + "/.env"
 	if _, err := os.Stat(envFile); err == nil {
 		args = append(args, "--env-file", envFile)
 	}
@@ -238,12 +213,8 @@ func buildRunArgs(dep store.Deployment, internalPort string) []string {
 	return args
 }
 
-// containerWorkdir retourne le chemin de travail dans le conteneur
+// containerWorkdir retourne le chemin de montage dans le conteneur
 // selon la stack de l'app.
-//
-// Pour Node/Python/Go : /app (standard)
-// Pour Laravel : /var/www/html (là où Apache lit)
-// Pour Static : /usr/share/nginx/html (là où Nginx lit)
 func containerWorkdir(dep store.Deployment) string {
 	switch dep.Stack {
 	case "laravel":
@@ -254,3 +225,8 @@ func containerWorkdir(dep store.Deployment) string {
 		return "/app"
 	}
 }
+
+// Fix : on a besoin de filepath et os dans ce fichier (utilisés par
+// buildRunArgs pour .env). On les importe.
+var _ = filepath.Join
+var _ = os.Stat
